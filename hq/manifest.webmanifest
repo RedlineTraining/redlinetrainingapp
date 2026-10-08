@@ -1,0 +1,16 @@
+{
+  "name": "Redline HQ",
+  "short_name": "Redline HQ",
+  "description": "Owner dashboard for Redline Training — leads, clients, content and the inbox.",
+  "start_url": "./hq.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#08090A",
+  "theme_color": "#08090A",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
