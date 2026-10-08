@@ -1,7 +1,7 @@
 // Redline service worker
 // Caches the app shell so it opens instantly and works offline.
 // Bump CACHE_VERSION whenever you change index.html so users get the update.
-const CACHE_VERSION = 'redline-v29';
+const CACHE_VERSION = 'redline-v30';
 
 const APP_SHELL = [
   './',
@@ -41,6 +41,17 @@ self.addEventListener('fetch', (event) => {
 
   // Only handle same-origin GETs.
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+
+  // config.js holds the database keys. Always ask the network first so a corrected
+  // key takes effect immediately; fall back to the saved copy only when offline.
+  if (new URL(req.url).pathname.endsWith('/config.js')) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => { const copy = res.clone(); caches.open(CACHE_VERSION).then((c) => c.put(req, copy)); return res; })
+        .catch(() => caches.match(req))
+    );
+    return;
+  }
 
   // Network-first for the page itself, so updates are picked up when online.
   if (req.mode === 'navigate') {

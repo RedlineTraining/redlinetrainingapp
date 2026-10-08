@@ -169,6 +169,75 @@
   }
   .insight-line .i-dot{width:6px; height:6px; border-radius:50%; background:var(--red); flex-shrink:0;}
 
+  /* ---- Today dashboard cards ---- */
+  .hcard{
+    background:var(--bg-elev); border:1px solid var(--hairline); border-radius:16px;
+    padding:16px; margin-bottom:12px; position:relative;
+  }
+  .hcard-tap{ cursor:pointer; }
+  .hcard-tap:active{ background:var(--bg-elev-2); }
+  .hc-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .hc-label{ font-size:12px; font-weight:500; color:var(--text-dim); }
+  .hc-chip{
+    font-size:10.5px; font-weight:600; padding:4px 9px; border-radius:20px;
+    border:1px solid var(--hairline-strong); color:var(--text-dim); white-space:nowrap;
+  }
+  .hc-chip.warn{ color:var(--red); border-color:var(--red-dim); background:var(--red-soft); }
+  .hc-chip.good{ color:var(--text); border-color:rgba(255,255,255,.35); }
+
+  .rd-row{ display:flex; gap:16px; align-items:center; }
+  .rd-ring{ width:104px; height:104px; position:relative; flex-shrink:0; }
+  .rd-ring svg{ width:100%; height:100%; transform:rotate(-90deg); filter:drop-shadow(0 0 5px rgba(232,48,42,.45)); }
+  .rd-ring.empty svg{ filter:none; }
+  .rd-ring .rd-num{
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  }
+  .rd-ring .rd-num b{ font-family:'Barlow Condensed',sans-serif; font-size:40px; font-weight:600; line-height:1; }
+  .rd-ring .rd-num span{ font-size:10px; color:var(--text-dim); margin-top:2px; }
+  .rd-drivers{ flex:1; min-width:0; }
+  .rd-drow{ display:flex; justify-content:space-between; font-size:12.5px; padding:6px 0; border-top:1px solid var(--hairline); }
+  .rd-drow:first-child{ border-top:none; }
+  .rd-drow span{ color:var(--text-dim); }
+  .rd-drow b{ font-weight:600; }
+  .rd-drow b.bad{ color:var(--red); }
+  .rd-note{ margin-top:12px; font-size:12px; color:var(--text-dim); line-height:1.5; }
+  .rd-empty-copy{ flex:1; font-size:12.5px; color:var(--text-dim); line-height:1.55; }
+  .rd-empty-copy b{ display:block; color:var(--text); font-size:14px; margin-bottom:3px; }
+
+  .sc-title{ font-family:'Barlow Condensed',sans-serif; font-size:28px; font-weight:600; line-height:1.05; margin:0; }
+  .sc-sub{ font-size:12.5px; color:var(--text-dim); margin-top:3px; }
+  .sc-chips{ display:flex; gap:7px; flex-wrap:wrap; margin:12px 0 14px; }
+  .hc-btn{
+    display:flex; align-items:center; justify-content:center; width:100%; min-height:48px; border-radius:13px;
+    font-size:14.5px; font-weight:600; cursor:pointer; border:1px solid var(--hairline-strong);
+    background:var(--bg-elev-2); color:var(--text);
+  }
+  .hc-btn.pri{ background:linear-gradient(180deg,#E8302A,#C72019); border:none; color:#fff; box-shadow:0 8px 22px -12px rgba(232,48,42,.8); }
+
+  .co-row{ display:flex; gap:12px; align-items:flex-start; }
+  .co-av{
+    width:34px; height:34px; border-radius:50%; background:var(--bg-elev-2); border:1px solid var(--hairline);
+    display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; flex-shrink:0;
+  }
+  .co-row b{ font-size:12.5px; display:block; }
+  .co-row p{ margin:3px 0 0; font-size:13px; color:#dcdfe2; line-height:1.5; }
+
+  /* the food ring + macros, as one compact card */
+  .nutri-card{ display:grid; grid-template-columns:118px 1fr; gap:6px 16px; align-items:center; }
+  .nutri-card .cal-display{ padding:0; }
+  .nutri-card .cal-ring-wrap{ width:118px; height:118px; }
+  .nutri-card #ringSvg{ width:118px; height:118px; }
+  .nutri-card .cal-readout .num{ font-size:28px; letter-spacing:0; }
+  .nutri-card .cal-readout .lbl{ font-size:9.5px; margin-top:2px; }
+  .nutri-card .macro-strip{ margin-top:0; min-width:0; }
+  .nutri-card .macro-row{
+    display:grid; grid-template-columns:auto 1fr auto; column-gap:8px; row-gap:5px; align-items:center; padding:7px 0;
+  }
+  .nutri-card .m-name{ font-size:12px; min-width:0; }
+  .nutri-card .m-track{ grid-column:1 / -1; order:5; width:100%; }
+  .nutri-card .m-val{ font-size:12px; text-align:right; }
+  .nutri-card .cal-status{ grid-column:1 / -1; margin-top:8px; text-align:center; }
+
   /* ---- readiness pill + check-in + explain/choose ---- */
   .readiness-pill{
     display:inline-flex; align-items:center; gap:8px; width:100%; justify-content:center;
@@ -1192,44 +1261,50 @@
       </div>
       <button class="edit-toggle-link" id="viewingPastBanner" style="display:none; margin:-4px 0 10px;"></button>
 
-      <div class="cal-display">
-        <div class="cal-ring-wrap">
-          <svg id="ringSvg" viewBox="0 0 220 220" width="220" height="220"></svg>
-          <div class="cal-readout">
-            <div class="num serif" id="kcalConsumed">0</div>
-            <div class="lbl" id="kcalTarget">of 0 kcal</div>
+      <!-- Today dashboard: how ready you are, what's next, what your coach said, what you've eaten -->
+      <div class="hcard" id="readinessCard"></div>
+      <div class="hcard" id="sessionCard"></div>
+      <div class="hcard hcard-tap" id="coachCard"></div>
+
+      <div class="hcard nutri-card">
+        <div class="cal-display">
+          <div class="cal-ring-wrap">
+            <svg id="ringSvg" viewBox="0 0 220 220" width="220" height="220"></svg>
+            <div class="cal-readout">
+              <div class="num serif" id="kcalConsumed">0</div>
+              <div class="lbl" id="kcalTarget">of 0 kcal</div>
+            </div>
           </div>
         </div>
-        <div class="cal-status" id="calStatus">Log your first meal to get started</div>
-      </div>
 
-      <div class="macro-strip">
-        <div class="macro-row">
-          <span class="macro-swatch" style="background:var(--red)"></span>
-          <span class="m-name">Protein</span>
-          <div class="m-track"><div class="m-fill" id="proteinBar" style="background:var(--red); width:0%"></div></div>
-          <span class="m-val" id="proteinVal"><b>0</b>/0g</span>
+        <div class="macro-strip">
+          <div class="macro-row">
+            <span class="macro-swatch" style="background:var(--red)"></span>
+            <span class="m-name">Protein</span>
+            <div class="m-track"><div class="m-fill" id="proteinBar" style="background:var(--red); width:0%"></div></div>
+            <span class="m-val" id="proteinVal"><b>0</b>/0g</span>
+          </div>
+          <div class="macro-row">
+            <span class="macro-swatch" style="background:var(--grey-light)"></span>
+            <span class="m-name">Carbs</span>
+            <div class="m-track"><div class="m-fill" id="carbsBar" style="background:var(--grey-light); width:0%"></div></div>
+            <span class="m-val" id="carbsVal"><b>0</b>/0g</span>
+          </div>
+          <div class="macro-row">
+            <span class="macro-swatch" style="background:var(--grey-mid)"></span>
+            <span class="m-name">Fat</span>
+            <div class="m-track"><div class="m-fill" id="fatBar" style="background:var(--grey-mid); width:0%"></div></div>
+            <span class="m-val" id="fatVal"><b>0</b>/0g</span>
+          </div>
         </div>
-        <div class="macro-row">
-          <span class="macro-swatch" style="background:var(--grey-light)"></span>
-          <span class="m-name">Carbs</span>
-          <div class="m-track"><div class="m-fill" id="carbsBar" style="background:var(--grey-light); width:0%"></div></div>
-          <span class="m-val" id="carbsVal"><b>0</b>/0g</span>
-        </div>
-        <div class="macro-row">
-          <span class="macro-swatch" style="background:var(--grey-mid)"></span>
-          <span class="m-name">Fat</span>
-          <div class="m-track"><div class="m-fill" id="fatBar" style="background:var(--grey-mid); width:0%"></div></div>
-          <span class="m-val" id="fatVal"><b>0</b>/0g</span>
-        </div>
+
+        <div class="cal-status" id="calStatus">Log your first meal to get started</div>
       </div>
 
       <div class="insight-line hidden" id="insightLine">
         <span class="i-dot"></span>
         <span id="insightText"></span>
       </div>
-
-      <div id="readinessMini" style="margin-bottom:14px;"></div>
 
       <button class="add-meal-btn" id="addMealBtn">📷&nbsp;&nbsp;Add a meal</button>
       <div style="display:flex; justify-content:center; gap:16px; margin-top:4px;">
@@ -1635,6 +1710,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 <script>
 (function(){
   const ACTIVITY_LABELS = {
@@ -1672,20 +1748,46 @@
   // ================= CLOUD SYNC (Supabase) =================
   // Fill these in with YOUR project's values (see SUPABASE-SETUP.md).
   // The anon key is designed to be public — row-level security is what protects data.
-  const SUPABASE_URL = 'https://vasvlzdmdmiclyiuhghd.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_9CgERrzXW4dU9xDwq7qCzg_eWfFcoMl';
+  // The database connection settings live in config.js (one small file you fill
+  // in once), not in this file, so updating the app never means re-pasting keys.
+  const CFG = window.REDLINE_CONFIG || {};
+  const SUPABASE_URL = String(CFG.supabaseUrl || '').trim();
+  const SUPABASE_ANON_KEY = String(CFG.supabaseKey || '').trim();
+  const FORCE_LOCAL = /[?&]local\b/.test(location.search);   // ?local=1 runs offline on purpose (demos, testing)
 
-  const syncConfigured = SUPABASE_URL.indexOf('http') === 0 && SUPABASE_ANON_KEY.length > 20;
+  const syncConfigured = SUPABASE_URL.indexOf('http') === 0 && SUPABASE_ANON_KEY.length > 20 && SUPABASE_ANON_KEY.indexOf('PASTE') !== 0;
   let sb = null;
   let currentUser = null;
   let syncing = false;
+  let connectionProblem = null;   // 'config' | 'library' | 'init' when the database can't be reached
 
-  if(syncConfigured && typeof window.supabase !== 'undefined'){
-    try{
-      sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: { persistSession: true, autoRefreshToken: true, storage: window.localStorage }
-      });
-    }catch(e){ console.error('Supabase init failed:', e); sb = null; }
+  if(!FORCE_LOCAL){
+    if(!syncConfigured) connectionProblem = 'config';
+    else if(typeof window.supabase === 'undefined') connectionProblem = 'library';
+    else{
+      try{
+        sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+          auth: { persistSession: true, autoRefreshToken: true, storage: window.localStorage }
+        });
+      }catch(e){ console.error('Supabase init failed:', e); sb = null; connectionProblem = 'init'; }
+    }
+  }
+
+  // Says plainly what's wrong instead of silently running with nowhere to save to.
+  function showConnectionProblem(){
+    ['authView','onboardingView','mainApp'].forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.add('hidden'); });
+    const copy = {
+      config:  ['This app isn\'t connected to its database yet', 'The settings file, config.js, is missing or hasn\'t been filled in. Follow the setup guide step for config.js, then reload.'],
+      library: ['Couldn\'t load the connection', 'The connection library didn\'t load. Check your internet, turn off any ad blocker for this site, then reload.'],
+      init:    ['The database keys look wrong', 'The keys in config.js couldn\'t be used. Copy the Project URL and the anon key from Supabase again and paste them into config.js.']
+    }[connectionProblem] || ['Not connected', 'Reload and try again.'];
+    const old = document.getElementById('connView'); if(old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="connView" style="position:fixed;inset:0;z-index:300;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:28px;">' +
+      '<div style="max-width:380px;text-align:center;">' +
+      '<div class="serif" style="font-size:26px;font-weight:600;margin-bottom:10px;">' + copy[0] + '</div>' +
+      '<div style="font-size:13.5px;color:var(--text-dim);line-height:1.6;margin-bottom:22px;">' + copy[1] + '</div>' +
+      '<button class="sheet-btn sheet-btn-primary" style="width:100%;" onclick="location.reload()">Try again</button></div></div>');
   }
 
   function setSyncStatus(text, isError){
@@ -1976,6 +2078,8 @@
   async function loadAll(){
     await testStorage();
 
+    if(!sb && !FORCE_LOCAL){ showConnectionProblem(); return; }
+
     // signed in already?
     if(sb){
       try{
@@ -2072,18 +2176,136 @@
     showToast(`Readiness: ${computed.score}/100`);
   });
 
+  // ---- Today dashboard ----
+  const RING_C = 2 * Math.PI * 46;   // circumference of the 104px readiness ring (r=46)
+
   function renderReadinessWidget(){
-    const el = document.getElementById('readinessMini');
+    const el = document.getElementById('readinessCard');
     if(!el) return;
     const r = widgets.readiness;
-    if(!r || r.date !== currentDate){
-      el.innerHTML = `<button class="readiness-pill" id="readinessCta">Log this morning's readiness</button>`;
-      const btn = document.getElementById('readinessCta');
-      if(btn) btn.addEventListener('click', openCheckin);
+    const done = r && r.date === currentDate;
+
+    if(!done){
+      el.innerHTML = `
+        <div class="hc-head"><span class="hc-label">Morning readiness</span><span class="hc-chip">Not checked in</span></div>
+        <div class="rd-row">
+          <div class="rd-ring empty">
+            <svg viewBox="0 0 104 104"><circle cx="52" cy="52" r="46" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="8"/></svg>
+            <div class="rd-num"><b>--</b><span>of 100</span></div>
+          </div>
+          <div class="rd-empty-copy"><b>15 seconds</b>Sleep, soreness, tiredness and stress. That's what shapes today's session.</div>
+        </div>
+        <button class="hc-btn pri" id="readinessCta" style="margin-top:14px;">Check in</button>`;
+      document.getElementById('readinessCta').addEventListener('click', openCheckin);
       return;
     }
+
     const low = r.score < 60;
-    el.innerHTML = `<div class="readiness-pill ${low?'low':''}">Readiness ${r.score}${low?' — lower than usual':''}</div>`;
+    const label = r.score >= 75 ? 'Good to go' : (low ? 'Lower than usual' : 'Moderate');
+    const chipCls = low ? 'warn' : (r.score >= 75 ? 'good' : '');
+    const off = RING_C * (1 - Math.max(0, Math.min(100, r.score)) / 100);
+    const row = (name, val, bad) => `<div class="rd-drow"><span>${name}</span><b class="${bad?'bad':''}">${val}</b></div>`;
+    el.innerHTML = `
+      <div class="hc-head"><span class="hc-label">Morning readiness</span><span class="hc-chip ${chipCls}">${label}</span></div>
+      <div class="rd-row">
+        <div class="rd-ring">
+          <svg viewBox="0 0 104 104">
+            <circle cx="52" cy="52" r="46" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="8"/>
+            <circle cx="52" cy="52" r="46" fill="none" stroke="#E8302A" stroke-width="8" stroke-linecap="round"
+              stroke-dasharray="${RING_C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/>
+          </svg>
+          <div class="rd-num"><b>${r.score}</b><span>of 100</span></div>
+        </div>
+        <div class="rd-drivers">
+          ${row('Sleep', r.sleepHours + 'h', r.sleepScore < 65)}
+          ${row('Soreness', r.soreness + ' / 5', r.soreness >= 4)}
+          ${row('Tiredness', r.tiredness + ' / 5', r.tiredness >= 4)}
+          ${row('Stress', r.stress + ' / 5', r.stress >= 4)}
+        </div>
+      </div>
+      ${low ? '<div class="rd-note">A lighter session is suggested. Start your session below and you can choose.</div>' : ''}`;
+  }
+
+  // The next session in this week's plan that isn't finished yet.
+  function nextSessionInfo(){
+    if(!trainingPlan || !trainingPlan.days || !trainingPlan.days.length) return null;
+    const wk = trainingPlan.weekNumber;
+    for(let i = 0; i < trainingPlan.days.length; i++){
+      const log = trainingLogs[`w${wk}:${i}`];
+      if(!(log && log.done)) return { index:i, day:trainingPlan.days[i], wk, adapted: !!(log && log.adapted) };
+    }
+    return { allDone:true, wk };
+  }
+  function estimateMinutes(day){
+    const secs = (day.exercises||[]).reduce((n,ex)=> n + (ex.sets||3) * ((ex.restSeconds||90) + 40), 0);
+    return Math.max(20, Math.round(secs / 60 / 5) * 5);
+  }
+
+  function renderSessionCard(){
+    const el = document.getElementById('sessionCard');
+    if(!el) return;
+    const info = nextSessionInfo();
+
+    if(!info){
+      el.innerHTML = `
+        <div class="hc-head"><span class="hc-label">Training</span></div>
+        <h2 class="sc-title">Your plan</h2>
+        <div class="sc-sub">Answer a few questions and get a full week of training built around your goals and equipment.</div>
+        <button class="hc-btn pri" id="scBuild" style="margin-top:14px;">Build my plan</button>`;
+      document.getElementById('scBuild').addEventListener('click', ()=>switchTab('trainScreen'));
+      return;
+    }
+    if(info.allDone){
+      el.innerHTML = `
+        <div class="hc-head"><span class="hc-label">Training</span><span class="hc-chip good">Week ${info.wk} complete</span></div>
+        <h2 class="sc-title">All sessions done</h2>
+        <div class="sc-sub">Nice work. Your next week is built from what you lifted.</div>
+        <button class="hc-btn" id="scWeek" style="margin-top:14px;">See your week</button>`;
+      document.getElementById('scWeek').addEventListener('click', ()=>switchTab('trainScreen'));
+      return;
+    }
+
+    const d = info.day;
+    const done = Object.keys(trainingLogs).filter(k=>k.indexOf(`w${info.wk}:`)===0 && trainingLogs[k].done).length;
+    el.innerHTML = `
+      <div class="hc-head"><span class="hc-label">Today's session</span><span class="hc-chip">${estimateMinutes(d)} min</span></div>
+      <h2 class="sc-title">${escapeHtml(d.name)}</h2>
+      <div class="sc-sub">${escapeHtml(d.focus||'')}</div>
+      <div class="sc-chips">
+        <span class="hc-chip">${(d.exercises||[]).length} exercises</span>
+        <span class="hc-chip">Week ${info.wk}, ${done} of ${trainingPlan.days.length} done</span>
+        ${info.adapted ? '<span class="hc-chip warn">Lightened</span>' : ''}
+      </div>
+      <button class="hc-btn pri" id="scStart">Start session</button>`;
+    document.getElementById('scStart').addEventListener('click', ()=>{
+      const di = info.index;
+      switchTab('trainScreen');
+      maybeShowReadinessGate(di, (adapt)=>{
+        resetTrainScroll();
+        if(adapt) adaptTodaysSession(di); else openSession(di);
+      });
+    });
+  }
+
+  function renderCoachCard(){
+    const el = document.getElementById('coachCard');
+    if(!el) return;
+    const last = chatHistory.slice().reverse().find(m=>m.role==='assistant' && !m.isSystemNote);
+    const who = last && last.fromCoachName ? 'Your coach' : 'Redline assistant';
+    const text = last ? (last.text.length > 120 ? last.text.slice(0,117).trim() + '...' : last.text)
+                      : 'Ask about your training, your food, or how the app works.';
+    el.innerHTML = `
+      <div class="co-row">
+        <div class="co-av">${last && last.fromCoachName ? 'C' : '✦'}</div>
+        <div style="min-width:0;"><b>${last ? who : 'Ask your coach'}</b><p>${escapeHtml(text)}</p></div>
+      </div>`;
+    el.onclick = ()=>switchTab('coachScreen');
+  }
+
+  function renderHomeCards(){
+    renderReadinessWidget();
+    renderSessionCard();
+    renderCoachCard();
   }
 
   // Shown right before a session opens, only when today's readiness is low
@@ -2560,6 +2782,17 @@ Lighten this ONE session for today only. Keep the main compound lift(s) but redu
         if(!d.heightCm) missing.push('height');
         if(!d.sex) missing.push('sex');
         if(missing.length){ showToast('Still need: ' + missing.join(', ')); return; }
+
+        // Believable-number checks. Without these a typo (or the wrong unit
+        // selected) quietly produces a nonsense plan, like a 3g protein target.
+        const unitW = d.units==='imperial' ? 'lb' : 'kg';
+        if(d.age < 13 || d.age > 100){ showToast('Age should be between 13 and 100.'); return; }
+        if(d.weightKg < 30 || d.weightKg > 300){
+          showToast(`That weight looks off. Check it's in ${unitW} (you have ${unitW} selected at the top).`); return;
+        }
+        if(d.heightCm < 120 || d.heightCm > 230){
+          showToast(d.units==='imperial' ? 'That height looks off. Use feet and inches, like 5 ft 10 in.' : 'That height looks off. Use centimetres, like 178.'); return;
+        }
         goNext();
       });
 
@@ -2877,15 +3110,13 @@ Lighten this ONE session for today only. Keep the main compound lift(s) but redu
 
   function render(){
     if(!mainInited) return;
-    renderReadinessWidget();
+    renderHomeCards();
     const t = totals();
     const budget = effectiveTarget();     // target plus whatever you counted as burned
     const burnKcal = countedBurn();
     document.getElementById('kcalConsumed').textContent = Math.round(t.calories).toLocaleString();
-    document.getElementById('kcalTarget').textContent =
-      burnKcal > 0
-        ? `of ${budget.toLocaleString()} kcal, ${Math.round(burnKcal)} earned back`
-        : `of ${targets.calories.toLocaleString()} kcal`;
+    document.getElementById('kcalTarget').textContent = `of ${budget.toLocaleString()} kcal`;
+    const earnedNote = burnKcal > 0 ? ` (${Math.round(burnKcal)} earned from activity)` : '';
     drawRing(t.calories, budget);
 
     const remaining = budget - t.calories;
@@ -2894,10 +3125,10 @@ Lighten this ONE session for today only. Keep the main compound lift(s) but redu
       statusEl.textContent = 'Log your first meal to get started';
       statusEl.className = 'cal-status';
     } else if(remaining>0){
-      statusEl.textContent = `${Math.round(remaining).toLocaleString()} kcal remaining today`;
+      statusEl.textContent = `${Math.round(remaining).toLocaleString()} kcal remaining today${earnedNote}`;
       statusEl.className = 'cal-status' + (remaining<budget*0.15 ? ' warn' : '');
     } else {
-      statusEl.textContent = `${Math.round(Math.abs(remaining)).toLocaleString()} kcal over today's target`;
+      statusEl.textContent = `${Math.round(Math.abs(remaining)).toLocaleString()} kcal over today's target${earnedNote}`;
       statusEl.className = 'cal-status over';
     }
 
@@ -4064,6 +4295,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
       renderChat(); scrollChatToLatest();
       syncCoachMessages().then(changed=>{ if(changed){ renderChat(); scrollChatToLatest(); } });
     }
+    if(tabId==='homeScreen' && mainInited){ renderHomeCards(); }
     if(tabId==='progressScreen'){ renderProgressScreen(); computeInsight(); }
     if(tabId==='trainScreen'){ renderTrain(); }
   }
