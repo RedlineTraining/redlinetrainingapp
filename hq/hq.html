@@ -249,7 +249,7 @@ const db = {
   },
   async listByEq(t, col, val){
     if(DEMO) return rd(t).filter(r=>r[col]===val);
-    const { data, error } = await sb.from(t).select('*').eq(col,val).order('created_at',{ascending:true});
+    const { data, error } = await sb.from(t).select('*').eq(col,val);
     if(error) throw error; return data||[];
   },
   async upsert(t, rows, onConflict){
@@ -1078,7 +1078,14 @@ function seedDemo(){
 function showGate(html){ $('#app').classList.add('hidden'); const g=$('#gate'); g.classList.remove('hidden'); g.innerHTML='<div class="gate-box"><img src="'+HQ_BADGE+'" alt="Redline HQ" style="display:block;width:76px;height:76px;margin:0 auto 18px;filter:drop-shadow(0 10px 26px rgba(232,48,42,.45));">'+html+'</div>'; }
 async function start(){
   $('#gate').classList.add('hidden'); $('#app').classList.remove('hidden');
-  try{ await loadAll(); }catch(e){ showGate(`<h1>Almost there</h1><p>HQ could not read its tables. Run <b>schema.sql</b> in your Supabase SQL Editor, then reload.</p><div class="code">${esc(e.message||e)}</div>`); return; }
+  try{ await loadAll(); }catch(e){
+    const msg = String((e && e.message) || e);
+    const missing = /does not exist|relation|schema cache/i.test(msg);
+    showGate(`<h1>Almost there</h1><p>HQ couldn't load its data.</p><div class="code">${esc(msg)}</div>` +
+      (missing ? `<p>A table or column is missing. Run <b>schema.sql</b> in the Supabase SQL Editor, then reload.</p>` : `<p>Tell Claude the line above and it can be fixed quickly.</p>`) +
+      `<button class="btn pri" style="width:100%" onclick="location.reload()">Try again</button>`);
+    return;
+  }
   setupVoice(); go('today');
 }
 async function loadAll(){
@@ -1129,11 +1136,15 @@ async function checkAdmin(){
     sb.from('admins').select('user_id').eq('user_id',ME.id).maybeSingle(),
     sb.from('staff').select('user_id,status').eq('user_id',ME.id).maybeSingle(),
   ]);
-  if(adminRow.error && staffRow.error) return showGate(`<h1>Almost there</h1><p>Run <b>schema.sql</b> in your Supabase SQL Editor first, then reload.</p><div class="code">${esc(adminRow.error.message)}</div>`);
-
+  if(adminRow.error){
+    return showGate(`<h1>Almost there</h1><p>HQ couldn't check your access.</p><div class="code">${esc(adminRow.error.message)}</div><button class="btn pri" style="width:100%" onclick="location.reload()">Try again</button>`);
+  }
   IS_OWNER = !!adminRow.data;
   if(IS_OWNER){ start(); return; }
 
+  if(staffRow.error){
+    return showGate(`<h1>Almost there</h1><p>HQ couldn't check your access.</p><div class="code">${esc(staffRow.error.message)}</div><button class="btn pri" style="width:100%" onclick="location.reload()">Try again</button>`);
+  }
   if(staffRow.data){
     if(staffRow.data.status === 'suspended'){
       return showGate(`<h1>Access suspended</h1><p>Your Redline HQ access has been turned off. Contact the owner if this is unexpected.</p><button class="btn" id="gOut" style="width:100%">Sign out</button>`), $('#gOut').addEventListener('click',async()=>{ await sb.auth.signOut(); location.reload(); });
