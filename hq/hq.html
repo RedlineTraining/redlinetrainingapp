@@ -13,6 +13,7 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="../config.js"></script>
 <style>
   :root{
     --bg:#08090A; --elev:#111214; --elev2:#181A1D; --sunk:#050506;
@@ -175,10 +176,13 @@
 'use strict';
 
 // ---------- config ----------
-const SUPABASE_URL = 'https://vasvlzdmdmiclyiuhghd.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_9CgERrzXW4dU9xDwq7qCzg_eWfFcoMl';   // the same publishable key as the app
-const DEMO = /[?&]demo\b/.test(location.search) || SUPABASE_KEY.indexOf('PASTE') === 0;
-const VAPID_PUBLIC_KEY = 'PASTE_YOUR_VAPID_PUBLIC_KEY_HERE';   // see NOTIFICATIONS-SETUP.md
+// Connection settings live in config.js (one small file at the top of your site), not in this file.
+const CFG = window.REDLINE_CONFIG || {};
+const SUPABASE_URL = String(CFG.supabaseUrl || '').trim();
+const SUPABASE_KEY = String(CFG.supabaseKey || '').trim();
+const DEMO = /[?&]demo\b/.test(location.search);
+const CONFIGURED = SUPABASE_URL.indexOf('http') === 0 && SUPABASE_KEY.length > 20 && SUPABASE_KEY.indexOf('PASTE') !== 0;
+const VAPID_PUBLIC_KEY = String(CFG.vapidPublicKey || 'PASTE_YOUR_VAPID_PUBLIC_KEY_HERE');   // see NOTIFICATIONS-SETUP.md
 
 // ---------- tiny helpers ----------
 const $  = (s, r=document) => r.querySelector(s);
@@ -1099,7 +1103,11 @@ function registerServiceWorker(){
 async function boot(){
   registerServiceWorker();
   if(DEMO){ ME={id:'demo-owner',email:'demo@redline'}; IS_OWNER=true; seedDemo(); $('#modeTag').classList.remove('hidden'); return start(); }
-  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth:{persistSession:true,autoRefreshToken:true,storage:window.localStorage} });
+  const retry = "<button class='btn pri' style='width:100%' onclick='location.reload()'>Try again</button>";
+  if(!CONFIGURED) return showGate("<h1>Not connected yet</h1><p>The settings file, <b>config.js</b>, is missing or hasn't been filled in. Follow the config.js step in the setup guide, then reload.</p>" + retry);
+  if(typeof window.supabase === 'undefined') return showGate("<h1>Couldn't load the connection</h1><p>Check your internet and turn off any ad blocker for this site, then reload.</p>" + retry);
+  try{ sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth:{persistSession:true,autoRefreshToken:true,storage:window.localStorage} }); }
+  catch(e){ return showGate("<h1>The database keys look wrong</h1><p>Copy the Project URL and the anon key from Supabase again and paste them into <b>config.js</b>.</p>" + retry); }
   const { data } = await sb.auth.getSession();
   if(!data.session) return signIn();
   ME = data.session.user; return checkAdmin();
