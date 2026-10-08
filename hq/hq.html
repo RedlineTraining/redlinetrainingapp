@@ -834,7 +834,7 @@ async function handleIncomingMessage(msg){
   if(RISK_WORDS.test(msg.body)){
     await db.update('messages','id',msg.id,{ flagged:'This mentions something that needs a personal reply — health, pain, billing or similar.' });
     MSGS = await db.list('messages');
-    await notify(ME.id, 'risky_message_flagged', 'Needs your reply', (msg.client_id?'A client':'A lead')+' message was held for you.', '');
+    // the owner alert for this message is sent by the server job, so it still arrives when HQ is closed
     return;
   }
   try{
@@ -845,7 +845,6 @@ async function handleIncomingMessage(msg){
       MSGS = await db.list('messages');
     } else if(j.reply){
       Q = (await db.insert('queue',[{ kind:'reminder', title:'Inbox reply', body:j.reply, client_id:msg.client_id, lead_id:msg.lead_id, status:'draft', meta:{inbox:true} }])).concat(Q);
-      await notify(ME.id, 'new_client_message', 'New message', (msg.client_id?'A client':'A lead')+' sent a message — reply drafted.', '');
     }
   }catch(e){ console.error('inbox classify failed', e); }
   setBadge();
@@ -943,7 +942,7 @@ const NOTIF_EVENTS = [
   ['low_recovery','Client flagged as low recovery'],
   ['risky_message_flagged','Risky message flagged'],
   ['post_failed','Post failed to publish'],
-  ['daily_summary','Daily summary'],
+  ['daily_summary','Daily summary at 7:30am'],
 ];
 
 function b64ToUint8(base64){
@@ -989,6 +988,7 @@ async function notificationsSheet(){
     <button class="btn ${status==='on'?'':'pri'}" id="pushBtn" style="width:100%;margin-bottom:14px;">
       ${status==='on'?'Notifications are on for this device':status==='denied'?'Blocked — enable in your browser settings':'Enable notifications on this device'}
     </button>
+    ${status==='on'?'<button class="btn" id="pushTest" style="width:100%;margin:-4px 0 14px;">Send me a test notification</button>':''}
     ${NOTIF_EVENTS.map(([ev,label])=>{
       const p = prefs[ev] || {push:true, email:false};
       return `<div class="xr">
@@ -1005,8 +1005,16 @@ async function notificationsSheet(){
       <div class="fld" style="flex:1;"><label>Until</label><input class="inp" id="qEnd" type="time" value="${esc(MYNOTIF.quiet_end||'06:30')}"></div>
     </div>
     <div class="help">Urgent items (risky messages, failed posts) still come through during quiet hours.</div>
+    <div class="modal-sub">Sent to clients automatically</div>
+    <div class="xr"><div>You reply, or change their plan<small>Straight away</small></div><span class="cp w">AUTO</span></div>
+    <div class="xr"><div>Good-morning check-in prompt<small>At their wake-up time</small></div><span class="cp w">AUTO</span></div>
+    <div class="xr"><div>Session started but not finished<small>8pm their time</small></div><span class="cp w">AUTO</span></div>
+    <div class="xr"><div>Meal reminders<small>9am, 12pm, 6pm, only if nothing is logged</small></div><span class="cp w">AUTO</span></div>
+    <div class="xr"><div>Three days without training<small>5pm, once per gap</small></div><span class="cp w">AUTO</span></div>
+    <div class="help">Each client can switch these off for themselves in their app. Nothing is sent in the middle of the night.</div>
     <button class="btn pri" id="notifSave" style="width:100%">Save</button>
   `, b=>{
+    const pt=$('#pushTest',b); if(pt) pt.onclick = ()=>working(pt,'Sending...',async()=>{ await notify(ME.id,'test','Redline HQ','This is a test. If you can read this, notifications work.',''); toast('Sent. It should arrive in a few seconds.'); });
     $('#pushBtn',b).onclick = ()=>working($('#pushBtn',b),'Enabling...',async()=>{ if(await enablePush()){ closeSheet(); notificationsSheet(); } });
     $$('[data-ev]',b).forEach(el=>el.onclick=()=>el.classList.toggle('on'));
     $('#notifSave',b).onclick = ()=>working($('#notifSave',b),'Saving...',async()=>{
@@ -1017,7 +1025,8 @@ async function notificationsSheet(){
           email: $(`[data-ev="${ev}"][data-k="email"]`,b).classList.contains('on'),
         };
       });
-      MYNOTIF = { user_id:ME.id, prefs:newPrefs, quiet_start:$('#qStart',b).value||'22:00', quiet_end:$('#qEnd',b).value||'06:30' };
+      let tz='Australia/Brisbane'; try{ tz=Intl.DateTimeFormat().resolvedOptions().timeZone||tz; }catch(e){}
+      MYNOTIF = { user_id:ME.id, prefs:newPrefs, quiet_start:$('#qStart',b).value||'22:00', quiet_end:$('#qEnd',b).value||'06:30', tz };
       await db.upsert('notif_prefs', [MYNOTIF], 'user_id');
       closeSheet(); toast('Saved.');
     });
@@ -1178,7 +1187,8 @@ async function clientSheet(c){
       const push=$('#cpPush',b); if(push) push.onclick=()=>working(push,'Pushing...',async()=>{
         edit.coachNote = ($('#cpNote',b)||{}).value||edit.coachNote||'';
         await db.kvSet(c.user_id,'coachPlan',Object.assign({},edit,{pushedAt:Date.now(),from:'coach'}));
-        toast('Pushed. It shows up in their app next time they open it.');
+        await notify(c.user_id, 'session_added', 'Your plan was updated', 'Coach Nash updated your training. Tap to review it.', '');
+        toast('Pushed. They get a notification, and it shows in their app.');
       });
     };
     rebind();
