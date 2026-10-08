@@ -1580,6 +1580,20 @@
       <button id="managePlanBtn"></button>
     </div>
 
+    <div class="modal-sub">Notifications</div>
+    <div class="toggle-row">
+      <div><div class="t-label" id="pushStatusLbl">Notifications are off</div><div class="t-sub" id="pushStatusSub" style="line-height:1.45;">Get your check-in prompt and coach replies as they happen.</div></div>
+      <button class="edit-toggle-link" id="pushEnableBtn" style="margin:0;">Turn on</button>
+    </div>
+    <div class="settings-field-row">
+      <div class="field"><label>Wake-up time</label><input type="time" id="wakeTime" value="06:30"></div>
+    </div>
+    <div class="toggle-row"><div><div class="t-label">Morning check-in</div><div class="t-sub">At your wake-up time</div></div><div class="switch" id="nMorning"></div></div>
+    <div class="toggle-row"><div><div class="t-label">Coach replies and plan changes</div></div><div class="switch" id="nCoach"></div></div>
+    <div class="toggle-row"><div><div class="t-label">Session still open</div><div class="t-sub">8pm, only if you started one and didn't finish</div></div><div class="switch" id="nSession"></div></div>
+    <div class="toggle-row"><div><div class="t-label">Meal reminders</div><div class="t-sub">9am, 12pm and 6pm, only if nothing's logged</div></div><div class="switch" id="nMeals"></div></div>
+    <div class="toggle-row"><div><div class="t-label">Three days without training</div></div><div class="switch" id="nIdle"></div></div>
+
     <div class="modal-sub">Account</div>
     <div class="toggle-row">
       <div>
@@ -1913,6 +1927,7 @@
       }
 
       queuePush(key, value); // no-op when signed out
+      if(key==='trainingLogs' || key.indexOf('entries:')===0 || key.indexOf('widgets:')===0) scheduleNotifyState();
 
       updateLayerState();
       return persisted;
@@ -4487,6 +4502,112 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
   document.getElementById('waterMinus').addEventListener('click', async ()=>{ widgets.water=Math.max((widgets.water||0)-1,0); document.getElementById('waterVal').textContent=widgets.water; await saveWidgets(); });
   document.getElementById('sleepInput').addEventListener('change', async (e)=>{ widgets.sleep=e.target.value; await saveWidgets(); });
 
+  // ================= NOTIFICATIONS =================
+  const NOTIF_KEYS = { nMorning:'morning_report', nCoach:null, nSession:'session_open', nMeals:'meal_reminder', nIdle:'inactivity' };
+  function b64ToU8(b64){
+    const pad='='.repeat((4-b64.length%4)%4), raw=atob((b64+pad).replace(/-/g,'+').replace(/_/g,'/'));
+    const out=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i); return out;
+  }
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+  const isStandalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  function vapidKey(){ const k=String(CFG.vapidPublicKey||''); return (k && k.indexOf('PASTE')!==0 && k.length>40) ? k : ''; }
+  async function pushState(){
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) return (isIOS && !isStandalone) ? 'needs-install' : 'unsupported';
+    if(typeof Notification !== 'undefined' && Notification.permission==='denied') return 'denied';
+    try{ const reg=await navigator.serviceWorker.ready; return (await reg.pushManager.getSubscription()) ? 'on' : 'off'; }catch(e){ return 'off'; }
+  }
+  async function refreshPushUI(){
+    const st = await pushState();
+    const lbl=document.getElementById('pushStatusLbl'), sub=document.getElementById('pushStatusSub'), btn=document.getElementById('pushEnableBtn');
+    if(!lbl) return;
+    const map = {
+      on:['Notifications are on','This device will get your check-in prompt and coach replies.','Turn off'],
+      off:['Notifications are off','Get your check-in prompt and coach replies as they happen.','Turn on'],
+      denied:['Notifications are blocked','Allow notifications for this site in your browser or phone settings, then come back.',''],
+      unsupported:['Not available on this browser','Try Chrome, or add Redline to your home screen first.',''],
+      'needs-install':['One step first','On iPhone, tap Share, then Add to Home Screen, then open Redline from your home screen and come back here.','']
+    };
+    const m = map[st]; lbl.textContent=m[0]; sub.textContent=m[1]; btn.textContent=m[2]; btn.style.display = m[2]?'':'none'; btn.dataset.state=st;
+    if(!vapidKey() && st==='off'){ sub.textContent='Notifications are not switched on for this app yet.'; btn.style.display='none'; }
+  }
+  async function enableClientPush(){
+    if(!sb || !currentUser){ showToast('Sign in first'); return; }
+    if(!vapidKey()){ showToast('Notifications are not set up yet'); return; }
+    const perm = await Notification.requestPermission();
+    if(perm!=='granted'){ showToast('Notifications were not allowed'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToU8(vapidKey()) });
+    const j = sub.toJSON();
+    const { error } = await sb.from('push_subs').upsert([{ user_id:currentUser.id, endpoint:j.endpoint, keys:j.keys }], { onConflict:'endpoint' });
+    if(error){ console.error(error); showToast('Could not save this device'); return; }
+    await saveNotifPrefs(); showToast('Notifications are on');
+  }
+  async function disableClientPush(){
+    try{
+      const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription();
+      if(sub){ const ep=sub.endpoint; await sub.unsubscribe(); if(sb) await sb.from('push_subs').delete().eq('endpoint', ep); }
+    }catch(e){ console.error(e); }
+    showToast('Notifications are off');
+  }
+  function readNotifUI(){
+    const on = id => document.getElementById(id).classList.contains('on');
+    const prefs = {};
+    Object.keys(NOTIF_KEYS).forEach(id=>{ if(NOTIF_KEYS[id]) prefs[NOTIF_KEYS[id]] = { push:on(id) }; });
+    prefs.coach_replied = { push:on('nCoach') }; prefs.session_added = { push:on('nCoach') };
+    return { prefs, wake: document.getElementById('wakeTime').value || '06:30' };
+  }
+  async function saveNotifPrefs(){
+    if(!sb || !currentUser) return;
+    const u = readNotifUI(); let tz = 'Australia/Brisbane'; try{ tz = Intl.DateTimeFormat().resolvedOptions().timeZone || tz; }catch(e){}
+    const { error } = await sb.from('notif_prefs').upsert({ user_id:currentUser.id, prefs:u.prefs, wake:u.wake, tz, updated_at:new Date().toISOString() }, { onConflict:'user_id' });
+    if(error) console.error('notif prefs save failed', error);
+  }
+  async function loadNotifUI(){
+    let prefs = {}, wake = '06:30';
+    if(sb && currentUser){
+      try{ const { data } = await sb.from('notif_prefs').select('prefs,wake').eq('user_id', currentUser.id).maybeSingle(); if(data){ prefs=data.prefs||{}; wake=data.wake||wake; } }catch(e){}
+    }
+    const isOn = ev => !(prefs[ev] && prefs[ev].push===false);
+    document.getElementById('nMorning').classList.toggle('on', isOn('morning_report'));
+    document.getElementById('nCoach').classList.toggle('on', isOn('coach_replied'));
+    document.getElementById('nSession').classList.toggle('on', isOn('session_open'));
+    document.getElementById('nMeals').classList.toggle('on', isOn('meal_reminder'));
+    document.getElementById('nIdle').classList.toggle('on', isOn('inactivity'));
+    document.getElementById('wakeTime').value = wake;
+    refreshPushUI();
+  }
+
+  // What the server needs to know to send the right nudge at the right time.
+  // Kept small and rebuilt a moment after anything relevant changes.
+  let NS = null, nsTimer = null;
+  function scheduleNotifyState(){ clearTimeout(nsTimer); nsTimer = setTimeout(computeNotifyState, 1500); }
+  async function computeNotifyState(){
+    try{
+      if(!sb || !currentUser) return;
+      if(NS === null){ try{ const r = memStore['notifyState']; NS = r ? JSON.parse(r) : {}; }catch(e){ NS = {}; } }
+      const before = JSON.stringify(NS);
+      const today = toDateKey(new Date());
+      NS.name = (profile && profile.name) || NS.name || '';
+      if(currentDate === today){
+        if(widgets && widgets.readiness && widgets.readiness.date === today) NS.checkedInDate = today;
+        const times = (entries||[]).map(e=>e.loggedAt).filter(Boolean).sort();
+        if(times.length) NS.lastEntryAt = times[times.length-1];
+      }
+      let lastTrain = NS.lastTrainAt || null, open = null;
+      Object.keys(trainingLogs||{}).forEach(k=>{
+        const l = trainingLogs[k]||{};
+        if(l.done && l.completedAt && (!lastTrain || l.completedAt > lastTrain)) lastTrain = l.completedAt;
+        const started = !l.done && Object.keys(l.exercises||{}).some(n=>(l.exercises[n]||[]).some(st=>st && st.r));
+        if(started){ const di = Number(k.split(':')[1]); open = { key:k, name: (trainingPlan && trainingPlan.days && trainingPlan.days[di] && trainingPlan.days[di].name) || 'Your session' }; }
+      });
+      NS.lastTrainAt = lastTrain;
+      if(open){ NS.openSession = (NS.openSession && NS.openSession.key===open.key) ? NS.openSession : { key:open.key, name:open.name, date:today }; }
+      else NS.openSession = null;
+      if(JSON.stringify(NS) !== before) await store.set('notifyState', JSON.stringify(NS));
+    }catch(e){ console.warn('notify state', e); }
+  }
+
   // ================= SETTINGS =================
   function renderSettingsInputs(){
     document.getElementById('targetCal').value = targets.calories;
@@ -4506,7 +4627,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
       document.getElementById('profActivityDisplay').value = ACTIVITY_LABELS[profile.activity]||'';
     }
   }
-  function openSettings(){ renderSettingsInputs(); document.getElementById('settingsModal').classList.remove('hidden'); }
+  function openSettings(){ renderSettingsInputs(); document.getElementById('settingsModal').classList.remove('hidden'); loadNotifUI(); }
   document.getElementById('copyDayLink').addEventListener('click', openCopyDaySheet);
   document.getElementById('copyDayClose').addEventListener('click', ()=>document.getElementById('copyDayModal').classList.add('hidden'));
   document.getElementById('copyDayModal').addEventListener('click', e=>{ if(e.target.id==='copyDayModal') document.getElementById('copyDayModal').classList.add('hidden'); });
@@ -4522,6 +4643,8 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
   document.getElementById('settingsBtn2').addEventListener('click', openSettings);
   document.getElementById('closeSettings').addEventListener('click', ()=>document.getElementById('settingsModal').classList.add('hidden'));
   document.getElementById('autoLogSwitch').addEventListener('click', function(){ this.classList.toggle('on'); });
+  ['nMorning','nCoach','nSession','nMeals','nIdle'].forEach(id=>document.getElementById(id).addEventListener('click', function(){ this.classList.toggle('on'); }));
+  document.getElementById('pushEnableBtn').addEventListener('click', async function(){ if(this.dataset.state==='on') await disableClientPush(); else await enableClientPush(); refreshPushUI(); });
   document.getElementById('recalcBtn').addEventListener('click', ()=>{
     const newWeightDisplay = Number(document.getElementById('profWeight').value);
     if(newWeightDisplay) profile.weightKg = profile.units==='imperial' ? lbToKg(newWeightDisplay) : newWeightDisplay;
@@ -4614,7 +4737,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
     // settings.provider is set by the toggle handler above
     const newWeightDisplay = Number(document.getElementById('profWeight').value);
     if(newWeightDisplay && profile){ profile.weightKg = profile.units==='imperial' ? lbToKg(newWeightDisplay) : newWeightDisplay; await saveProfile(); }
-    await saveTargets(); await saveSettings();
+    await saveTargets(); await saveSettings(); saveNotifPrefs();
     document.getElementById('settingsModal').classList.add('hidden');
     render();
   });

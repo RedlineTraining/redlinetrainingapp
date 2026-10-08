@@ -1,7 +1,7 @@
 // Redline service worker
 // Caches the app shell so it opens instantly and works offline.
 // Bump CACHE_VERSION whenever you change index.html so users get the update.
-const CACHE_VERSION = 'redline-v30';
+const CACHE_VERSION = 'redline-v31';
 
 const APP_SHELL = [
   './',
@@ -74,5 +74,29 @@ self.addEventListener('fetch', (event) => {
       caches.open(CACHE_VERSION).then((c) => c.put(req, copy));
       return res;
     }).catch(() => cached))
+  );
+});
+
+
+// --- push notifications ---
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { title: 'Redline', body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(data.title || 'Redline', {
+    body: data.body || '',
+    icon: data.icon || 'icons/icon-192.png',
+    data: { link: data.link || './' },
+    tag: data.tag || undefined,
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const link = (event.notification.data && event.notification.data.link) || './';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) { if ('focus' in c) return c.focus(); }
+      if (self.clients.openWindow) return self.clients.openWindow(link);
+    })
   );
 });
