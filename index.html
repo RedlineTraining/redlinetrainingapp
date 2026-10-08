@@ -3667,7 +3667,7 @@ Respond with ONLY a JSON object, no other text, no markdown fences:
   async function pullNewCoachMessages(){
     if(!(sb && currentUser)) return [];
     try{
-      let q = sb.from('messages').select('*').eq('client_id', currentUser.id).eq('direction','out').order('created_at',{ascending:true});
+      let q = sb.from('messages').select('*').eq('client_id', currentUser.id).eq('direction','out').eq('author','coach').order('created_at',{ascending:true});
       if(lastMessageSyncAt) q = q.gt('created_at', lastMessageSyncAt);
       const { data, error } = await q;
       if(error) throw error;
@@ -3695,8 +3695,19 @@ Respond with ONLY a JSON object, no other text, no markdown fences:
 
   // Merges any new coach-side messages into the local chat and re-renders.
   // Safe to call often — it's a no-op when there's nothing new or no account.
+  // Which of these server rows are not already in the chat? Safe to call any number of times,
+  // including after a reload (the chat is saved on the device, so ids are remembered).
+  function newCoachRows(history, rows){
+    const seen = new Set();
+    (history || []).forEach(m=>{
+      if(m._srvId) seen.add(String(m._srvId));
+      if(typeof m._id === 'string' && m._id.indexOf('srv_') === 0) seen.add(m._id.slice(4));
+    });
+    return (rows || []).filter(r => r && r.id && !seen.has(String(r.id)));
+  }
+
   async function syncCoachMessages(){
-    const incoming = await pullNewCoachMessages();
+    const incoming = newCoachRows(chatHistory, await pullNewCoachMessages());
     if(!incoming.length) return false;
     incoming.forEach(row=>{
       chatHistory.push({
