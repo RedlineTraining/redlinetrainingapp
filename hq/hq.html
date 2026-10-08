@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="../config.js"></script>
 <style>
@@ -137,6 +137,120 @@
   .spin{width:18px;height:18px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--red);animation:sp .8s linear infinite;display:inline-block;vertical-align:middle;margin-right:8px}
   @keyframes sp{to{transform:rotate(360deg)}}
   ::-webkit-scrollbar{width:0;height:0}
+
+  /* ======== JARVIS LAYER ======== */
+  :root{ --mono:'JetBrains Mono',ui-monospace,Menlo,monospace; --red-hot:#FF4438; --panel:rgba(255,255,255,.03); --sb:216px; --tb:66px; }
+  html,body{background:radial-gradient(1100px 520px at 72% -10%,rgba(232,48,42,.14),transparent 70%),#06070A}
+  body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+    background-size:44px 44px;-webkit-mask-image:radial-gradient(ellipse at 60% 0%,#000 8%,transparent 72%);mask-image:radial-gradient(ellipse at 60% 0%,#000 8%,transparent 72%)}
+  .hdr{background:rgba(6,7,10,.92)} .tabs{background:rgba(6,7,10,.94)}
+  .screen{z-index:1}
+  /* HUD panels: red corner brackets */
+  .card,.item,.hud,.empty{position:relative;background:var(--panel);border-color:var(--line)}
+  .card::before,.hud::before,.item::before,.card::after,.hud::after,.item::after{content:'';position:absolute;width:10px;height:10px;border:1.5px solid var(--red);opacity:.7;pointer-events:none}
+  .card::before,.hud::before,.item::before{top:-1px;left:-1px;border-right:none;border-bottom:none;border-top-left-radius:12px}
+  .card::after,.hud::after,.item::after{bottom:-1px;right:-1px;border-left:none;border-top:none;border-bottom-right-radius:12px}
+  .hud{border:1px solid var(--line);border-radius:12px;padding:16px 18px;min-width:0}
+  .ph{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+  .ph h3{margin:0;font-family:'Inter',sans-serif;font-size:13.5px;font-weight:600;letter-spacing:0}
+  .hint{display:flex;gap:6px;align-items:center;font-size:11px;color:var(--faint)}
+  .k{font-family:var(--mono);font-size:10.5px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:2px 6px;background:none;cursor:default}
+  button.k{cursor:pointer}
+  .cp{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--dim);white-space:nowrap;flex-shrink:0}
+  .cp.red{color:var(--red);border-color:var(--red-line)} .cp.w{color:#fff;border-color:rgba(255,255,255,.35)}
+  .tag{font-family:var(--mono)}
+  .pill{font-family:var(--mono);letter-spacing:.02em}
+  .ov-h h1{font-size:30px;line-height:1.1} .sub{font-size:13px;color:var(--dim);margin:4px 0 16px}
+  .hero{display:grid;grid-template-columns:1.75fr 1fr;gap:14px;margin-bottom:14px}
+  .act{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:9px;display:flex;gap:12px;align-items:flex-start;cursor:pointer}
+  .act:last-child{margin-bottom:0}
+  .act.sel{border-color:var(--red-line);background:rgba(232,48,42,.055);box-shadow:inset 3px 0 0 var(--red);cursor:default}
+  .ico{width:32px;height:32px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--dim);flex-shrink:0}
+  .act .t{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .act .s{font-size:11.5px;color:var(--dim);margin-top:2px}
+  .act .ta{margin-top:9px;background:rgba(0,0,0,.35);font-size:13px}
+  .acts{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
+  .acts.go{margin:0 0 0 auto;flex-shrink:0}
+  .acts .btn{min-height:36px;font-size:12.5px;padding:0 14px}
+  .thumb{height:128px;border-radius:9px;background:linear-gradient(135deg,#17080A,#2a0d0d 60%,#0b0c0f);border:1px solid var(--red-line);position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:14px}
+  .thumb::before{content:'';position:absolute;right:-30px;top:-30px;width:130px;height:130px;border-radius:50%;border:2px solid rgba(232,48,42,.5);box-shadow:0 0 30px rgba(232,48,42,.35)}
+  .thumb b{font-family:'Barlow Condensed',sans-serif;font-size:28px;line-height:.98;font-weight:700;position:relative;text-transform:uppercase}
+  .nx{display:flex;justify-content:space-between;align-items:center;margin:12px 0 4px;font-size:12.5px;gap:8px}.nx span{color:var(--dim)}
+  .mini{display:block;margin-top:14px;position:relative;height:18px}
+  .mini::before{content:'';position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line)}
+  .mini i{position:absolute;top:50%;transform:translate(-50%,-50%);width:3px;height:16px;border-radius:2px;background:var(--red);box-shadow:0 0 8px var(--red)}
+  .mini-l{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:6px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+  .st{position:relative}
+  .st .l{font-size:12px;color:var(--dim)}
+  .st .v{font-family:'Barlow Condensed',sans-serif;font-size:36px;font-weight:600;line-height:1.05;margin:3px 0 2px}
+  .st .d{font-family:var(--mono);font-size:11px;color:var(--dim)} .st .d b{color:#fff;font-weight:500}
+  .st svg{position:absolute;right:16px;top:20px;width:92px;height:34px;opacity:.95}
+  .row3{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+  .li{display:flex;align-items:center;gap:11px;padding:9px 0;border-top:1px solid var(--line);width:100%;background:none;border-left:0;border-right:0;border-bottom:0;text-align:left;cursor:pointer}
+  .li:first-of-type{border-top:none;padding-top:0}
+  .li .t{font-size:13px;font-weight:500}.li .s{font-size:11.5px;color:var(--dim);margin-top:2px}.li .cp{margin-left:auto}
+  .fr{display:grid;grid-template-columns:82px 1fr 26px;align-items:center;gap:10px;font-size:12px;color:var(--dim);margin-bottom:11px}
+  .bar{height:7px;border-radius:4px;background:rgba(255,255,255,.06);overflow:hidden}.bar i{display:block;height:100%;background:#E9E9E9}.bar i.r{background:linear-gradient(90deg,var(--red),var(--red-hot))}
+  .fr b{font-family:var(--mono);font-weight:500;color:var(--text);text-align:right;font-size:12px}
+  .log{font-family:var(--mono);font-size:11px;line-height:1.5;color:var(--dim)}.log div{padding:5px 0;border-top:1px solid var(--line)}.log div:first-child{border-top:none;padding-top:0}
+  .log time{color:var(--faint);margin-right:8px}.log b{color:var(--text);font-weight:400}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0 14px;align-items:start}
+  .mutedline{font-size:12px;color:var(--faint);padding:6px 0}
+  .micstate{font-family:var(--mono);font-size:11px;color:var(--red)}
+  /* Inbox, three columns */
+  .inbox3{display:grid;grid-template-columns:300px 1fr 270px;gap:14px;height:calc(100% - 4px);min-height:0}
+  .inbox3 > .hud{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .inbox3 .scr{overflow-y:auto;min-height:0;flex:1}
+  .inbox3 .item.on{border-color:var(--red-line);background:rgba(232,48,42,.06)}
+  .infoRow{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:12.5px}
+  .infoRow:first-of-type{border-top:none}.infoRow span{color:var(--dim)}
+  .topR{display:none}
+  #sheetHost .ov{z-index:60}
+  .sheet{position:relative}
+  /* ======== DESKTOP: sidebar + command bar ======== */
+  @media (min-width:900px){
+    :root{--top:var(--tb)}
+    #app::before{content:'';position:fixed;left:0;right:0;top:0;height:var(--tb);border-bottom:1px solid var(--line);z-index:19;pointer-events:none}
+    .hdr{left:0;right:auto;margin:0;width:var(--sb);max-width:none;height:var(--tb);padding:0 14px 0 18px;border-bottom:1px solid var(--line);border-right:1px solid var(--line);background:rgba(0,0,0,.4)}
+    .tabs{left:0;right:auto;margin:0;top:var(--tb);bottom:0;width:var(--sb);max-width:none;flex-direction:column;align-items:stretch;gap:4px;padding:16px 14px;border-top:none;border-right:1px solid var(--line);background:rgba(0,0,0,.4);backdrop-filter:none}
+    .tab{flex:none;flex-direction:row;justify-content:flex-start;gap:11px;padding:10px 11px;border-radius:9px;font-size:13.5px;font-weight:500;color:var(--dim);text-align:left}
+    .tab .ic{width:18px;text-align:center;font-size:14px}
+    .tab.on{color:var(--text);background:linear-gradient(90deg,rgba(232,48,42,.15),transparent)}
+    .tab.on::before{left:-14px;top:8px;bottom:8px;width:3px;height:auto;margin:0;border-radius:0 3px 3px 0}
+    .tab .n{position:static;margin-left:auto}
+    .tabs .me{display:flex;margin-top:auto}
+    .screen{left:var(--sb);right:0;max-width:none;margin:0;top:var(--tb);bottom:0;padding:18px 26px 28px}
+    .askbar{top:11px;bottom:auto;left:calc(var(--sb) + 26px);right:380px;margin:0;max-width:640px;padding:0 6px 0 10px;height:44px;gap:8px;align-items:center;
+      background:rgba(232,48,42,.04);border:1px solid var(--red-line);border-radius:12px;z-index:21}
+    .askbar input{background:transparent;border:none;min-height:40px;padding:0 4px;border-radius:0}
+    .askbar input:focus{border:none}
+    .askbar .round{width:34px;height:34px;font-size:14px}
+    .askbar .round.mic{border-radius:50%}
+    .askbar .cmdk{display:inline-flex}
+    .topR{display:flex;position:fixed;top:11px;right:26px;z-index:21;align-items:center;gap:12px;height:44px}
+    .liveDot{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11.5px;color:var(--dim)}
+    .liveDot i{width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 8px #fff}
+    .bell{position:relative;width:44px;height:44px}
+    .bell i{position:absolute;top:-5px;right:-5px;background:var(--red);color:#fff;font:600 10.5px Inter,sans-serif;font-style:normal;border-radius:9px;padding:1px 6px;border:2px solid #06070A}
+    #s-ask{bottom:0!important}
+    .toast{bottom:28px}
+    .sheet{max-width:600px;border-radius:16px;border:1px solid var(--line2)}
+    .ov{align-items:center;padding:20px}
+    #btnSettings{display:flex;align-items:center;justify-content:center}
+  }
+  @media (max-width:899px){
+    .hero,.row3{grid-template-columns:1fr} .kpis{grid-template-columns:1fr 1fr}
+    .kpis .st svg{display:none}
+    .tabs .me,.askbar .cmdk,.ph .hint{display:none}
+    .inbox3{display:block}
+  }
+  @media (min-width:900px) and (max-width:1180px){ .row3{grid-template-columns:1fr 1fr} .inbox3{grid-template-columns:260px 1fr} .inbox3 > .info{display:none} .askbar{right:300px} }
+  .tabs .me{align-items:center;gap:10px;padding:11px;border:1px solid var(--line);border-radius:10px;background:none;color:var(--text);text-align:left;cursor:pointer}
+  .me .av{width:32px;height:32px;border-radius:50%;background:#1b1d21;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px}
+  .me b{display:block;font-size:12.5px;font-weight:600}.me span{font-size:11px;color:var(--dim)}
+  .cmdk{display:none;font-family:var(--mono);font-size:10.5px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:2px 6px}
 </style>
 </head>
 <body>
@@ -146,8 +260,9 @@
 <div id="app" class="hidden">
   <header class="hdr">
     <div style="display:flex;align-items:center;gap:9px;"><img class="brand-logo" src="data:image/png;base64,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" alt="Redline Training"><span class="hq-tag">HQ</span></div>
-    <div class="hdr-r"><span class="pill hidden" id="modeTag">Demo</span><button class="ibtn" id="btnSettings" aria-label="Settings">⚙</button></div>
+    <div class="hdr-r"><button class="ibtn" id="btnSettings" aria-label="Settings">⚙</button></div>
   </header>
+  <div class="topR"><span class="liveDot"><i></i>All agents running</span><span class="pill hidden" id="modeTag">SAMPLE DATA</span><button class="ibtn bell" id="bell" aria-label="Notifications">🔔<i class="hidden" id="nBell"></i></button></div>
   <section class="screen" id="s-today"></section>
   <section class="screen hidden" id="s-inbox"></section>
   <section class="screen hidden" id="s-leads"></section>
@@ -156,16 +271,18 @@
   <section class="screen hidden" id="s-ask"></section>
   <div class="askbar hidden" id="askbar">
     <button class="round mic hidden" id="micBtn" aria-label="Speak">🎤</button>
-    <input type="text" id="askInput" placeholder="Tell HQ what to do..." enterkeyhint="send" autocomplete="off">
+    <input type="text" id="askInput" placeholder="Tell HQ what to do, or search…" enterkeyhint="send" autocomplete="off">
+    <span class="cmdk">Ctrl K</span>
     <button class="round" id="askSend" aria-label="Send">↑</button>
   </div>
   <nav class="tabs">
-    <button class="tab on" data-tab="today"><span class="ic">◉</span>Today<span class="n hidden" id="nToday"></span></button>
+    <button class="tab on" data-tab="today"><span class="ic">◉</span>Overview<span class="n hidden" id="nToday"></span></button>
     <button class="tab" data-tab="inbox"><span class="ic">✉</span>Inbox<span class="n hidden" id="nInbox"></span></button>
     <button class="tab" data-tab="leads"><span class="ic">◎</span>Leads</button>
-    <button class="tab" data-tab="content"><span class="ic">▶</span>Content</button>
+    <button class="tab" data-tab="content"><span class="ic">▶</span>Instagram</button>
     <button class="tab" data-tab="clients"><span class="ic">◆</span>Clients</button>
     <button class="tab" data-tab="ask"><span class="ic">✦</span>Ask HQ</button>
+    <button class="me" id="meCard" aria-label="Business settings"><span class="av" id="meAv">N</span><span><b id="meName">Nash</b><span id="meRole">Owner</span></span></button>
   </nav>
 </div>
 <div id="sheetHost"></div>
@@ -451,13 +568,18 @@ function setBadge(){
   const n = pending().length; const b=$('#nToday'); b.textContent=n; b.classList.toggle('hidden', n===0);
   const needsReply = conversationsFromMessages().filter(c=>c.needsReply||c.flagged).length;
   const ib=$('#nInbox'); if(ib){ ib.textContent=needsReply; ib.classList.toggle('hidden', needsReply===0); }
+  const bl=$('#nBell'); if(bl){ const tot=n+needsReply; bl.textContent=tot; bl.classList.toggle('hidden', tot===0); }
 }
 
+function qExtra(q){
+  const m=q.meta||{}; const rich = ['reel','post','story'].includes(q.kind);
+  return rich ? `<div class="meta">${m.hook?`<div><b>Hook</b>${esc(m.hook)}</div>`:''}${m.script?`<div><b>Script</b>${esc(m.script)}</div>`:''}${m.shots?`<div><b>Filming</b>${esc(m.shots)}</div>`:''}${m.hashtags?`<div><b>Tags</b>${esc(m.hashtags)}</div>`:''}${m.cta?`<div><b>CTA</b>${esc(m.cta)}</div>`:''}</div>` : '';
+}
 function qCard(q){
-  const m=q.meta||{}, lead=leadOf(q.lead_id), cl=clientOf(q.client_id);
+  const lead=leadOf(q.lead_id), cl=clientOf(q.client_id);
   const who = lead ? '@'+lead.handle : (cl ? (cl.display_name||cl.email) : '');
   const rich = ['reel','post','story'].includes(q.kind);
-  const extra = rich ? `<div class="meta">${m.hook?`<div><b>Hook</b>${esc(m.hook)}</div>`:''}${m.script?`<div><b>Script</b>${esc(m.script)}</div>`:''}${m.shots?`<div><b>Filming</b>${esc(m.shots)}</div>`:''}${m.hashtags?`<div><b>Tags</b>${esc(m.hashtags)}</div>`:''}${m.cta?`<div><b>CTA</b>${esc(m.cta)}</div>`:''}</div>` : '';
+  const extra = qExtra(q);
   let acts='';
   if(q.status==='draft') acts = `<button class="btn ghost" data-act="reject" data-id="${q.id}">Reject</button><button class="btn pri" data-act="approve" data-id="${q.id}">Approve</button>`;
   else if(q.status==='approved'){
@@ -470,18 +592,111 @@ function qCard(q){
     ${acts?`<div class="row">${acts}</div>`:''}</div>`;
 }
 
+let SEL=null;
+const DESK = () => window.matchMedia('(min-width:900px)').matches;
+function greeting(){ const h=new Date().getHours(); return h<12?'Good morning':h<18?'Good afternoon':'Good evening'; }
+function ownerFirstName(){
+  if(DEMO || IS_OWNER) return 'Nash';
+  const m = STAFF.find(x=>x.user_id===(ME&&ME.id)); const n = (m&&m.name)||((ME&&ME.email)||'').split('@')[0];
+  return n ? n.charAt(0).toUpperCase()+n.slice(1) : 'there';
+}
+function perDay(rows, field, cumulative){
+  const out=[0,0,0,0,0,0,0]; const start=new Date(); start.setHours(0,0,0,0);
+  const base = cumulative ? rows.filter(r=>r[field] && new Date(r[field]) < new Date(start.getTime()-6*864e5)).length : 0;
+  rows.forEach(r=>{ if(!r[field]) return; const d=Math.floor((start-new Date(new Date(r[field]).setHours(0,0,0,0)))/864e5); if(d>=0&&d<7) out[6-d]++; });
+  if(cumulative){ let a=base; for(let i=0;i<7;i++){ a+=out[i]; out[i]=a; } }
+  return out;
+}
+function spark(v){
+  const mx=Math.max.apply(null,v), mn=Math.min.apply(null,v), rng=Math.max(1,mx-mn);
+  const pts=v.map((x,i)=>(i*92/6).toFixed(0)+','+(30-((x-mn)/rng)*24).toFixed(1)).join(' ');
+  return '<svg viewBox="0 0 92 34" aria-hidden="true"><polyline points="'+pts+'" fill="none" stroke="#E8302A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function qTitle(q){
+  const lead=leadOf(q.lead_id), cl=clientOf(q.client_id);
+  const who = lead ? '@'+lead.handle : (cl ? (cl.display_name||cl.email) : '');
+  if(q.kind==='dm') return 'Message '+who;
+  if(q.meta && q.meta.inbox) return 'Reply to '+(who||'a message');
+  if(['reel','post','story'].includes(q.kind)) return (KIND[q.kind]||'Post')+': '+(q.title||'Untitled');
+  return (KIND[q.kind]||'Note')+(q.title?' · '+q.title:'')+(who?' · '+who:'');
+}
+const QICON = {dm:'✉',reminder:'✉',reel:'▶',post:'▶',story:'▶',program:'◆',other:'✦'};
+function relTime(iso){ if(!iso) return ''; const m=Math.round((Date.now()-new Date(iso))/6e4); if(m<1) return 'just now'; if(m<60) return m+' min ago'; const h=Math.round(m/60); if(h<24) return h+'h ago'; return ago(iso); }
+
+function needsPanel(){
+  const p=pending();
+  if(!p.find(q=>q.id===SEL)) SEL = p[0] ? p[0].id : null;
+  const rows = p.map(q=>{
+    const sel = q.id===SEL;
+    const ttl = esc(qTitle(q));
+    const chip = q.meta && q.meta.inbox ? 'Inbox draft' : (KIND[q.kind]||'Note');
+    if(!sel) return `<div class="act" data-sel="${q.id}"><div class="ico">${QICON[q.kind]||'✦'}</div><div style="flex:1;min-width:0"><div class="t">${ttl}<span class="cp">${esc(chip)}</span></div><div class="s">Drafted by HQ · ${relTime(q.created_at)||'today'}</div></div><div class="acts go"><button class="btn sm" data-sel="${q.id}">Review</button></div></div>`;
+    const rich = ['reel','post','story'].includes(q.kind);
+    return `<div class="act sel"><div class="ico">${QICON[q.kind]||'✦'}</div><div style="flex:1;min-width:0">
+      <div class="t">${ttl}<span class="cp">${esc(chip)}</span></div><div class="s">Drafted by HQ · ${relTime(q.created_at)||'today'} · nothing is sent until you approve</div>
+      <textarea class="ta" rows="${rich?4:3}" data-body="${q.id}">${esc(q.body)}</textarea>${qExtra(q)}
+      <div class="acts"><button class="btn pri" data-act="approve" data-id="${q.id}">Approve</button><button class="btn" data-edit="${q.id}">Edit</button><button class="btn" data-skip="${q.id}">Skip</button><button class="btn ghost" data-act="reject" data-id="${q.id}">Reject</button></div></div></div>`;
+  }).join('');
+  return `<div class="hud"><div class="ph"><h3>Needs you now${p.length?' ('+p.length+')':''}</h3><div class="hint"><span class="k">J</span><span class="k">K</span> move <span class="k">A</span> approve <span class="k">E</span> edit <span class="k">S</span> skip</div></div>
+    ${rows || '<div class="mutedline">All clear. Nothing is waiting on you. Add leads, plan your week of content, or tell HQ what you need in the bar above.</div>'}</div>`;
+}
+
+function nextUpPanel(){
+  const items = Q.filter(q=>['reel','post','story'].includes(q.kind) && (q.status==='draft'||q.status==='approved'));
+  const q = items.find(x=>x.status==='approved') || items[0];
+  const h = new Date().getHours()+new Date().getMinutes()/60; const pos = Math.max(2,Math.min(98,(h-7)/14*100));
+  const bar = `<div class="mini"><i style="left:${pos.toFixed(0)}%"></i></div><div class="mini-l"><span>07:00</span><span>now</span><span>21:00</span></div>`;
+  if(!q) return `<div class="hud"><div class="ph"><h3>Next up on Instagram</h3><span class="cp">EMPTY</span></div><div class="thumb"><b>NOTHING<br>QUEUED</b></div><div class="nx"><b>Plan the week</b><span></span></div>${bar}<div class="acts"><button class="btn sm pri" data-go="content">Open Instagram</button></div></div>`;
+  const m=q.meta||{}; const hook=(m.hook||q.title||q.body||'').toString().replace(/[.!?]+$/,'');
+  const thumbText = esc(hook.length>34?hook.slice(0,32)+'…':hook).replace(/(\S+\s\S+\s)/,'$1<br>');
+  return `<div class="hud"><div class="ph"><h3>Next up on Instagram</h3><span class="cp ${q.status==='draft'?'red':'w'}">${q.status==='draft'?'NEEDS APPROVAL':'APPROVED'}</span></div>
+    <div class="thumb"><b>${thumbText}</b></div>
+    <div class="nx"><b>${esc(KIND[q.kind]||'Post')}${q.title?' · '+esc(q.title):''}</b><span>${items.length} queued</span></div>${bar}
+    <div class="acts"><button class="btn sm" data-go="content">Open Instagram</button></div></div>`;
+}
+
 function renderToday(){
   const p=pending(), r=ready();
+  const flagged = conversationsFromMessages().filter(c=>c.flagged);
   const el=$('#s-today');
+  const activeC = C.filter(c=>c.status==='active').length;
+  const replied = L.filter(l=>['replied','call','client'].includes(l.stage)).length;
+  const content = Q.filter(q=>['reel','post','story'].includes(q.kind)&&q.status!=='rejected');
+  const posted = content.filter(q=>q.status==='done').length;
+  const sentDays = perDay(Q.filter(q=>q.kind==='dm'&&q.status==='done'&&q.sent_at),'sent_at');
+  const sub = [
+    p.length ? `${p.length} ${p.length===1?'thing needs':'things need'} you.` : 'Nothing is waiting on you.',
+    flagged.length ? `${flagged.length} ${flagged.length===1?'conversation is':'conversations are'} held for you in the Inbox.` : ''
+  ].filter(Boolean).join(' ');
+  // clients needing attention: held conversations first, then everyone else by level
+  const attn = [];
+  flagged.forEach(c=>{ if(c.client_id){ const cl=clientOf(c.client_id); attn.push({id:c.client_id,name:cl?(cl.display_name||cl.email):c.name,note:'Message held: '+String(c.last.body||'').slice(0,46),chip:'HELD FOR YOU',cls:'red'}); } });
+  C.forEach(cl=>{ if(!attn.find(a=>a.id===cl.user_id)) attn.push({id:cl.user_id,name:cl.display_name||cl.email||'Client',note:(({app:'App member',pro:'Pro membership',coaching:'1:1 coaching'})[cl.level]||cl.level)+' · '+cl.status,chip:String(cl.status||'').toUpperCase(),cls:'w'}); });
+  const maxStage = Math.max(1,...STAGES.map(st=>L.filter(l=>l.stage===st).length));
+  const feed = [];
+  Q.forEach(q=>feed.push({t:q.sent_at||q.created_at,txt:`<b>${q.status==='done'?'Sent':q.status==='approved'?'Approved':q.status==='rejected'?'Rejected':'Drafted'}</b> ${esc(qTitle(q).slice(0,44))}`}));
+  MSGS.forEach(m=>{ const cl=m.client_id?clientOf(m.client_id):null, ld=m.lead_id?leadOf(m.lead_id):null; const who=cl?(cl.display_name||cl.email):(ld?'@'+ld.handle:'someone');
+    feed.push({t:m.created_at,txt: m.direction==='in' ? `<b>Inbox</b> ${m.flagged?'held message from':'message from'} ${esc(who)}` : `<b>Inbox</b> ${m.author==='ai'?'AI replied to':'you replied to'} ${esc(who)}`}); });
+  feed.sort((a,b)=>new Date(b.t||0)-new Date(a.t||0));
+  const hhmm = iso => { if(!iso) return '--:--'; const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
   el.innerHTML = `
-    <div class="stats">
-      <div class="stat"><b>${p.length}</b><span>to approve</span></div>
-      <div class="stat"><b>${r.length}</b><span>ready to send</span></div>
-      <div class="stat"><b>${sentToday()}/${cap()}</b><span>messages today</span></div>
+    <div class="ov-h"><h1>${greeting()}, ${esc(ownerFirstName())}</h1><div class="sub">${esc(sub)}</div></div>
+    <div class="hero">${needsPanel()}${nextUpPanel()}</div>
+    ${r.length?`<div class="hud" style="margin-bottom:14px"><div class="ph"><h3>Ready to send (${r.length})</h3><span class="cp w">APPROVED</span></div><div class="grid2">${r.map(qCard).join('')}</div></div>`:''}
+    <div class="kpis">
+      <div class="hud st"><div class="l">Active clients</div><div class="v">${activeC}</div><div class="d"><b>${C.length}</b> total</div>${spark(perDay(C,'created_at',true))}</div>
+      <div class="hud st"><div class="l">Leads</div><div class="v">${L.length}</div><div class="d"><b>${replied}</b> replied${L.length?' · '+Math.round(replied/L.length*100)+'%':''}</div>${spark(perDay(L,'created_at'))}</div>
+      <div class="hud st"><div class="l">Messages today</div><div class="v">${sentToday()}<span style="font-size:20px;color:var(--faint)">/${cap()}</span></div><div class="d">daily send limit</div>${spark(sentDays)}</div>
+      <div class="hud st"><div class="l">Content queued</div><div class="v">${content.filter(q=>q.status!=='done').length}</div><div class="d"><b>${posted}</b> posted</div>${spark(perDay(content,'created_at'))}</div>
     </div>
-    ${(!p.length&&!r.length)?`<div class="empty">Nothing waiting.<br>Add leads and tap <b>Draft messages</b>, or plan your week of content, or tell Ask HQ what you need.</div>`:''}
-    ${r.length?`<div class="sec">Ready to send (${r.length})</div>${r.map(qCard).join('')}`:''}
-    ${p.length?`<div class="sec">Needs your approval (${p.length})</div>${p.map(qCard).join('')}`:''}`;
+    <div class="row3">
+      <div class="hud"><div class="ph"><h3>Clients needing attention</h3><button class="k" data-go="clients">All clients</button></div>
+        ${attn.length? attn.slice(0,4).map(a=>`<button class="li" data-client="${a.id}"><div class="ico">◆</div><div style="min-width:0"><div class="t">${esc(a.name)}</div><div class="s">${esc(a.note)}</div></div><span class="cp ${a.cls}">${esc(a.chip)}</span></button>`).join('') : '<div class="mutedline">No clients yet. Add one from the Clients tab, or type "add Name, email" in the bar above.</div>'}</div>
+      <div class="hud"><div class="ph"><h3>Lead pipeline</h3><button class="k" data-go="leads">Open</button></div>
+        ${STAGES.filter(st=>st!=='lost').map(st=>{ const n=L.filter(l=>l.stage===st).length; return `<div class="fr"><span>${STAGE_LABEL[st]}</span><div class="bar"><i class="${st==='call'||st==='client'?'r':''}" style="width:${Math.round(n/maxStage*100)}%"></i></div><b>${n}</b></div>`; }).join('')}</div>
+      <div class="hud"><div class="ph"><h3>Agent activity</h3><button class="k" data-go="inbox">Inbox</button></div>
+        <div class="log">${feed.length? feed.slice(0,6).map(f=>`<div><time>${hhmm(f.t)}</time>${f.txt}</div>`).join('') : '<div>Nothing yet. Activity shows up here as HQ works.</div>'}</div></div>
+    </div>`;
   setBadge();
 }
 
@@ -494,24 +709,24 @@ function renderLeads(filter){
     <div class="lead-h"><h2>Leads</h2><button class="btn pri sm" id="addLeadsBtn">+ Add leads</button></div>
     <div class="row" style="margin:0 0 14px"><button class="btn" id="dmFirst">Draft first messages</button><button class="btn" id="dmFollow">Follow-ups${due?' ('+due+' due)':''}</button></div>
     <div class="chips">${['all'].concat(STAGES).map(s=>`<button class="chip ${filter===s?'on':''}" data-f="${s}">${s==='all'?'All ('+L.length+')':STAGE_LABEL[s]+' ('+L.filter(l=>l.stage===s).length+')'}</button>`).join('')}</div>
-    ${list.length? list.map(l=>`<button class="item" data-lead="${l.id}"><div><div class="t">@${esc(l.handle)}${l.name?' · '+esc(l.name):''}</div><div class="s">${STAGE_LABEL[l.stage]} · last message ${ago(l.last_touch)}${l.notes?' · '+esc(l.notes.slice(0,40)):''}</div></div><span class="r">›</span></button>`).join('')
+    ${list.length? '<div class="grid2">'+list.map(l=>`<button class="item" data-lead="${l.id}"><div><div class="t">@${esc(l.handle)}${l.name?' · '+esc(l.name):''}</div><div class="s">${STAGE_LABEL[l.stage]} · last message ${ago(l.last_touch)}${l.notes?' · '+esc(l.notes.slice(0,40)):''}</div></div><span class="r">›</span></button>`).join('')+'</div>'
       : `<div class="empty">${L.length?'No leads at this stage.':'No leads yet.<br>Paste in people who follow you, people you follow, or anyone who messaged you. Start with 10 to 20.'}</div>`}`;
 }
 
 function renderContent(){
   const items = Q.filter(q=>['reel','post','story'].includes(q.kind)&&q.status!=='rejected');
   $('#s-content').innerHTML = `
-    <div class="lead-h"><h2>Content</h2></div>
+    <div class="lead-h"><h2>Instagram</h2></div>
     <div class="row" style="margin:0 0 14px"><button class="btn pri" id="planWeekBtn">Plan my week</button><button class="btn" id="ideaBtn">One idea</button></div>
     <div class="help">Everything is drafted for you to edit and approve. Posting is a tap away: copy the caption, film from the shot list, post it yourself.</div>
-    ${items.length? items.map(qCard).join('') : '<div class="empty">No content yet.<br>Tap <b>Plan my week</b> and HQ drafts a full week of reels, posts and stories.</div>'}`;
+    ${items.length? '<div class="grid2">'+items.map(qCard).join('')+'</div>' : '<div class="empty">No content yet.<br>Tap <b>Plan my week</b> and HQ drafts a full week of reels, posts and stories.</div>'}`;
 }
 
 function renderClients(){
   const el=$('#s-clients');
   el.innerHTML = `
     <div class="lead-h"><h2>Clients</h2><button class="btn pri sm" id="addClientBtn">+ Add client</button></div>
-    ${C.length? C.map(c=>`<button class="item" data-client="${c.user_id}"><div><div class="t">${esc(c.display_name||c.email||'Client')}</div><div class="s">${esc(({app:'App member',pro:'Pro membership',coaching:'1:1 coaching'})[c.level]||c.level)} · ${esc(c.status)}</div></div><span class="r">›</span></button>`).join('')
+    ${C.length? '<div class="grid2">'+C.map(c=>`<button class="item" data-client="${c.user_id}"><div><div class="t">${esc(c.display_name||c.email||'Client')}</div><div class="s">${esc(({app:'App member',pro:'Pro membership',coaching:'1:1 coaching'})[c.level]||c.level)} · ${esc(c.status)}</div></div><span class="r">›</span></button>`).join('')+'</div>'
       : '<div class="empty">No clients yet.<br>When someone signs up to the app, tap <b>Add client</b> to link them. You can then set their level, see their week, and push edited programming straight into their app.</div>'}`;
 }
 
@@ -548,19 +763,58 @@ function conversationsFromMessages(){
   return convos;
 }
 
+let INBOX_SEL=null;
+function convoItem(c, on){
+  return `<button class="item ${on?'on':''}" data-convo="${c.key}">
+    <div style="min-width:0"><div class="t">${esc(c.name)} ${c.flagged?'<span class="cp red">FLAGGED</span>':''}</div>
+    <div class="s">${c.source==='instagram'?'Instagram':'App'} · ${esc((c.last.body||'').slice(0,54))}${c.last.body.length>54?'…':''}</div></div>
+    <span class="r">›</span></button>`;
+}
+function threadHTML(c){
+  const flaggedMsg = c.msgs.slice().reverse().find(m=>m.flagged);
+  return `<div class="chat" style="margin-bottom:14px;">
+      ${c.msgs.map(m=>`<div class="b ${m.direction==='out'?'me':'ai'}">${m.author==='ai'?'<div style="font-size:10.5px;color:var(--dim);margin-bottom:3px;">Redline assistant · AI</div>':''}${esc(m.body)}</div>`).join('')}
+    </div>
+    ${c.flagged && flaggedMsg ? `<div class="help" style="border:1px solid var(--red-line);background:rgba(232,48,42,.07);border-radius:10px;padding:11px 13px;color:#e9c9c7;margin-bottom:14px;"><b style="color:var(--red)">Held for you.</b> ${esc(flaggedMsg.flagged)}</div>` : ''}
+    <div class="fld"><label>Reply</label><textarea class="ta" id="replyBox" rows="3" placeholder="Type a reply..."></textarea></div>
+    <button class="btn pri" id="replySend" style="width:100%">Send reply</button>`;
+}
+function bindThread(b, c, done){
+  $('#replySend',b).onclick = ()=>working($('#replySend',b),'Sending...',async()=>{
+    const text = $('#replyBox',b).value.trim();
+    if(!text){ toast('Write something first.'); return; }
+    await db.insert('messages',[{ client_id:c.client_id, lead_id:c.lead_id, source:c.source, direction:'out', author:'coach', body:text }]);
+    MSGS = await db.list('messages');
+    if(c.client_id) await notify(c.client_id, 'coach_replied', 'Your coach replied', text.slice(0,80), '');
+    done(); toast('Sent.');
+  });
+}
 function renderInbox(){
   const el = $('#s-inbox');
   const convos = conversationsFromMessages();
   const flaggedCount = convos.filter(c=>c.flagged).length;
+  if(DESK() && convos.length){
+    if(!convos.find(c=>c.key===INBOX_SEL)) INBOX_SEL = (convos.find(c=>c.flagged)||convos[0]).key;
+    const c = convos.find(x=>x.key===INBOX_SEL);
+    const cl = c.client_id ? clientOf(c.client_id) : null, ld = c.lead_id ? leadOf(c.lead_id) : null;
+    el.innerHTML = `<div class="inbox3">
+      <div class="hud"><div class="ph"><h3>Inbox</h3>${flaggedCount?`<span class="cp red">${flaggedCount} FLAGGED</span>`:''}</div><div class="scr">${convos.map(x=>convoItem(x,x.key===INBOX_SEL)).join('')}</div></div>
+      <div class="hud" id="threadPane"><div class="ph"><h3>${esc(c.name)} · ${c.source==='instagram'?'Instagram':'App chat'}</h3>${c.flagged?'<span class="cp red">HELD FOR YOU</span>':''}</div><div class="scr">${threadHTML(c)}</div></div>
+      <div class="hud info"><div class="ph"><h3>About</h3></div>
+        <div class="infoRow"><span>Name</span><b>${esc(c.name)}</b></div>
+        <div class="infoRow"><span>Channel</span><b>${c.source==='instagram'?'Instagram':'Redline app'}</b></div>
+        ${cl?`<div class="infoRow"><span>Level</span><b>${esc(({app:'App member',pro:'Pro',coaching:'1:1 coaching'})[cl.level]||cl.level||'')}</b></div><div class="infoRow"><span>Status</span><b>${esc(cl.status||'')}</b></div>`:''}
+        ${ld?`<div class="infoRow"><span>Stage</span><b>${esc(STAGE_LABEL[ld.stage]||ld.stage)}</b></div>${ld.notes?`<div class="infoRow"><span>Notes</span><b style="text-align:right">${esc(ld.notes)}</b></div>`:''}`:''}
+        <div class="infoRow"><span>Messages</span><b>${c.msgs.length}</b></div>
+        ${cl?`<button class="btn sm" style="width:100%;margin-top:10px" data-client="${cl.user_id}">Open client</button>`:''}${ld?`<button class="btn sm" style="width:100%;margin-top:10px" data-lead="${ld.id}">Open lead</button>`:''}
+      </div></div>`;
+    bindThread($('#threadPane'), c, ()=>renderInbox());
+    return;
+  }
   el.innerHTML = `
-    <div class="lead-h"><h2>Inbox</h2>${flaggedCount?`<span class="chip r">${flaggedCount} flagged</span>`:''}</div>
+    <div class="lead-h"><h2>Inbox</h2>${flaggedCount?`<span class="cp red">${flaggedCount} FLAGGED</span>`:''}</div>
     <div class="help">Client chats and Instagram messages in one place. App questions get an instant AI reply. Anything else is drafted for you. Anything that mentions pain, health, billing or similar is held for you to answer personally.</div>
-    ${convos.length ? convos.map(c=>`
-      <button class="item" data-convo="${c.key}">
-        <div><div class="t">${esc(c.name)} ${c.flagged?'<span class="chip r">FLAGGED</span>':''}</div>
-        <div class="s">${c.source==='instagram'?'Instagram':'App'} · ${esc((c.last.body||'').slice(0,54))}${c.last.body.length>54?'…':''}</div></div>
-        <span class="r">›</span>
-      </button>`).join('')
+    ${convos.length ? '<div class="grid2">'+convos.map(c=>convoItem(c,false)).join('')+'</div>'
       : '<div class="empty">No messages yet.<br>When a client or lead messages you, it shows up here.</div>'}`;
 }
 
@@ -568,23 +822,8 @@ function conversationThreadSheet(key){
   const convos = conversationsFromMessages();
   const c = convos.find(x=>x.key===key);
   if(!c) return;
-  const flaggedMsg = c.msgs.slice().reverse().find(m=>m.flagged);
-  sheet((c.name)+(c.source==='instagram'?' · Instagram':' · App chat'), `
-    <div class="chat" style="margin-bottom:14px;">
-      ${c.msgs.map(m=>`<div class="b ${m.direction==='out'?'me':'ai'}">${m.author==='ai'?'<div style="font-size:10.5px;color:var(--dim);margin-bottom:3px;">Redline assistant · AI</div>':''}${esc(m.body)}</div>`).join('')}
-    </div>
-    ${c.flagged && flaggedMsg ? `<div class="help" style="border:1px solid var(--red-line);background:rgba(232,48,42,.07);border-radius:10px;padding:11px 13px;color:#e9c9c7;margin-bottom:14px;"><b style="color:var(--red)">Held for you.</b> ${esc(flaggedMsg.flagged)}</div>` : ''}
-    <div class="fld"><label>Reply</label><textarea class="ta" id="replyBox" rows="3" placeholder="Type a reply..."></textarea></div>
-    <button class="btn pri" id="replySend" style="width:100%">Send reply</button>
-  `, b=>{
-    $('#replySend',b).onclick = ()=>working($('#replySend',b),'Sending...',async()=>{
-      const text = $('#replyBox',b).value.trim();
-      if(!text){ toast('Write something first.'); return; }
-      await db.insert('messages',[{ client_id:c.client_id, lead_id:c.lead_id, source:c.source, direction:'out', author:'coach', body:text }]);
-      MSGS = await db.list('messages');
-      if(c.client_id) await notify(c.client_id, 'coach_replied', 'Your coach replied', text.slice(0,80), '');
-      closeSheet(); renderInbox(); toast('Sent.');
-    });
+  sheet((c.name)+(c.source==='instagram'?' · Instagram':' · App chat'), threadHTML(c), b=>{
+    bindThread(b, c, ()=>{ closeSheet(); renderInbox(); });
   });
 }
 
@@ -621,7 +860,7 @@ function renderAsk(){
     <div class="quick">${quick.map(q=>`<button class="chip" data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div>
     <div class="chat" id="chat">${ASKLOG.map(m=>`<div class="b ${m.r}">${esc(m.t)}${m.did?`<div class="did">${esc(m.did)}</div>`:''}</div>`).join('')}</div>`;
   el.scrollTop = el.scrollHeight;
-  const vt = $('#voiceToggle'); if(vt) vt.onclick = ()=>{ voiceOn=!voiceOn; if(!voiceOn && 'speechSynthesis' in window) window.speechSynthesis.cancel(); renderAsk(); };
+  const vt = $('#voiceToggle'); if(vt) vt.onclick = ()=>{ voiceOn=!voiceOn; if(!voiceOn) stopSpeaking(); renderAsk(); };
 }
 
 function render(){
@@ -632,8 +871,9 @@ function go(t){
   TAB=t;
   $$('.tab').forEach(b=>b.classList.toggle('on', b.dataset.tab===t));
   $$('.screen').forEach(s=>s.classList.toggle('hidden', s.id!=='s-'+t));
-  $('#askbar').classList.toggle('hidden', t!=='ask');
-  $('#s-ask').style.bottom = t==='ask' ? 'calc(var(--tab) + 70px)' : '';
+  $('#askbar').classList.toggle('hidden', !DESK() && t!=='ask');
+  $('#s-ask').style.bottom = (t==='ask' && !DESK()) ? 'calc(var(--tab) + 70px)' : '';
+  if(!DESK() && t!=='ask' && micOn) toggleMic(false);
   render();
 }
 
@@ -668,6 +908,7 @@ function settingsSheet(){
     <div class="fld"><label>Price</label><input class="inp" id="sPrice" value="${esc(S.price||'')}" placeholder="e.g. $X per month"></div>
     <div class="fld"><label>Voice</label><textarea class="ta" id="sTone" rows="2" placeholder="casual, direct, mate-to-mate, Australian English">${esc(S.tone||'')}</textarea></div>
     <div class="fld"><label>Max messages to send per day</label><input class="inp" id="sCap" type="number" inputmode="numeric" value="${esc(S.dmCap||20)}"><div class="help" style="margin-top:6px">Keep it modest. Sending lots of new DMs fast is how Instagram accounts get restricted.</div></div>
+    <div class="fld"><label>Spoken voice (reads replies aloud)</label><select class="sel" id="sVoice"></select><div class="help" id="sVoiceNote" style="margin-top:6px"></div><button class="btn sm" id="sVoiceTest" type="button">Test voice</button></div>
     <div class="row">
       <button class="btn" id="sTeam">Team &amp; access</button>
       <button class="btn" id="sNotif">Notifications</button>
@@ -677,6 +918,17 @@ function settingsSheet(){
       S = { handle:$('#sHandle',b).value.trim(), niche:$('#sNiche',b).value.trim(), offer:$('#sOffer',b).value.trim(), price:$('#sPrice',b).value.trim(), tone:$('#sTone',b).value.trim(), dmCap:Number($('#sCap',b).value)||20 };
       await db.kvSet(ME.id,'hq:settings',S); closeSheet(); render(); toast('Saved');
     };
+    const vs = $('#sVoice',b), vn = $('#sVoiceNote',b);
+    const fillVoices = ()=>{
+      loadVoices();
+      const list = VOICES.map(v=>({v,sc:voiceScore(v)})).filter(x=>x.sc>=0).sort((a,b2)=>b2.sc-a.sc);
+      vs.innerHTML = list.length ? list.map(x=>`<option value="${esc(x.v.voiceURI||x.v.name)}" ${VOICE&&x.v===VOICE?'selected':''}>${esc(x.v.name)} (${esc(x.v.lang)})</option>`).join('') : '<option>No voices found on this device</option>';
+      const au = VOICE && /^en[-_]AU$/i.test(VOICE.lang);
+      vn.textContent = !list.length ? 'This browser has no speech voices. Replies are shown as text only.' : au ? 'Locked to an Australian voice, so it stays the same every time.' : 'This device has no Australian voice installed, so HQ is using the closest English one. On Windows add "English (Australia)" under Settings, Time & language, Speech. On iPhone and Mac add "Karen" under Accessibility, Spoken Content, Voices.';
+    };
+    fillVoices(); try{ window.speechSynthesis.addEventListener('voiceschanged', fillVoices); }catch(e){}
+    vs.onchange = ()=>{ lset(VKEY, vs.value); loadVoices(); fillVoices(); };
+    $('#sVoiceTest',b).onclick = ()=>speakReply("G'day Nash, this is your Redline HQ assistant. How's that sound?", true);
     $('#sOut',b).onclick = async ()=>{ if(sb) await sb.auth.signOut(); location.reload(); };
     $('#sTeam',b).onclick = ()=>{ closeSheet(); teamSheet(); };
     $('#sNotif',b).onclick = ()=>{ closeSheet(); notificationsSheet(); };
@@ -965,33 +1217,126 @@ async function ask(cmd){
 }
 
 // ---------- voice talk-back ----------
+// One fixed Australian voice, chosen once and remembered, so replies never switch
+// between male and female. Browsers only offer the voices the device has installed.
 let voiceOn = true;   // read AI replies aloud automatically; off = silent
-function speakReply(text){
-  if(!voiceOn || !('speechSynthesis' in window) || !text) return;
-  try{
-    window.speechSynthesis.cancel();   // don't queue up if a reply arrives mid-speech
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.02; u.pitch = 1;
-    window.speechSynthesis.speak(u);
-  }catch(e){ /* speech synthesis not available — fail silently, text is still shown */ }
+let VOICE = null, VOICES = [], speakId = 0, speaking = false, speakTimer = null;
+const VKEY = 'hq:voice';
+function lget(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lset(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+function voiceScore(v){
+  const n = v.name||'', l = String(v.lang||'').replace('_','-');
+  let sc;
+  if(/^en-AU$/i.test(l)) sc = 100; else if(/^en-(NZ|GB|IE|ZA)$/i.test(l)) sc = 30; else if(/^en/i.test(l)) sc = 10; else return -1;
+  if(/natural|neural|online|premium|enhanced|siri/i.test(n)) sc += 40;
+  if(/\b(karen|natasha|catherine|annette|hayley|lee|william|james|darren)\b/i.test(n)) sc += 15;
+  if(v.localService) sc += 3;
+  return sc;
 }
-let SR=null, rec=null;
+function chooseVoice(){
+  if(!VOICES.length) return null;
+  const saved = lget(VKEY);
+  if(saved){ const v = VOICES.find(x=>x.voiceURI===saved || x.name===saved); if(v) return v; }
+  const ranked = VOICES.map(v=>({v,sc:voiceScore(v)})).filter(x=>x.sc>=0).sort((a,b)=>b.sc-a.sc);
+  const best = ranked[0] && ranked[0].v;
+  if(best && /^en[-_]AU$/i.test(best.lang)) lset(VKEY, best.voiceURI||best.name);   // lock an Australian voice in
+  return best || null;
+}
+function loadVoices(){
+  if(!('speechSynthesis' in window)) return;
+  try{ VOICES = window.speechSynthesis.getVoices() || []; }catch(e){ VOICES = []; }
+  VOICE = chooseVoice();
+}
+if('speechSynthesis' in window){
+  loadVoices();
+  try{ window.speechSynthesis.addEventListener('voiceschanged', loadVoices); }catch(e){ window.speechSynthesis.onvoiceschanged = loadVoices; }
+}
+function speechChunks(text){
+  const clean = String(text).replace(/[·•]/g,'. ').replace(/[*_#`>]/g,'').replace(/https?:\/\/\S+/g,'').replace(/\s+/g,' ').trim();
+  const parts = clean.match(/[^.!?\n]+[.!?]*\s*/g) || [clean];
+  const out = []; let cur = '';
+  parts.forEach(p=>{ if((cur+p).length > 170 && cur){ out.push(cur.trim()); cur = p; } else cur += p; });
+  if(cur.trim()) out.push(cur.trim());
+  return out;
+}
+function finishSpeak(id){
+  if(id !== speakId || !speaking) return;
+  speaking = false; clearTimeout(speakTimer); resumeMic();
+}
+function speakReply(text, force){
+  if((!voiceOn && !force) || !('speechSynthesis' in window) || !text) return;
+  try{
+    const synth = window.speechSynthesis;
+    if(!VOICE) loadVoices();
+    synth.cancel();
+    const id = ++speakId; const chunks = speechChunks(text); if(!chunks.length) return;
+    speaking = true; pauseMic();
+    chunks.forEach((c,i)=>{
+      const u = new SpeechSynthesisUtterance(c);
+      if(VOICE){ u.voice = VOICE; u.lang = VOICE.lang; } else u.lang = 'en-AU';
+      u.rate = 0.96; u.pitch = 1; u.volume = 1;
+      if(i === chunks.length-1){ u.onend = ()=>finishSpeak(id); u.onerror = ()=>finishSpeak(id); }
+      synth.speak(u);
+    });
+    clearTimeout(speakTimer); speakTimer = setTimeout(()=>finishSpeak(id), String(text).length*95 + 5000);   // some browsers never fire onend
+  }catch(e){ speaking = false; resumeMic(); }
+}
+function stopSpeaking(){ speakId++; speaking = false; clearTimeout(speakTimer); try{ window.speechSynthesis.cancel(); }catch(e){} resumeMic(); }
+
+// ---------- mic: stays on until you switch it off ----------
+let SR=null, rec=null, micOn=false, micHold=false, micQ=[], draining=false, restarts=[];
+function setMicUI(){
+  const b=$('#micBtn'), inp=$('#askInput'); if(!b) return;
+  b.classList.toggle('live', micOn); b.setAttribute('aria-pressed', micOn?'true':'false');
+  b.title = micOn ? 'Listening. Tap to switch the mic off' : 'Tap to talk. It stays on until you switch it off';
+  b.textContent = micOn ? '■' : '🎤';
+  if(inp) inp.placeholder = micOn ? 'Listening… just talk' : 'Tell HQ what to do, or search…';
+}
+function startRec(){
+  if(!SR || !micOn || micHold || rec) return;
+  const now = Date.now(); restarts = restarts.filter(t=>now-t<6000); restarts.push(now);
+  if(restarts.length > 8){ micOn=false; setMicUI(); toast('The mic keeps cutting out. Tap it to try again.'); return; }
+  rec = new SR(); rec.lang = 'en-AU'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+  rec.onresult = e=>{
+    let interim = '';
+    for(let i=e.resultIndex; i<e.results.length; i++){
+      const r = e.results[i];
+      if(r.isFinal){ const t = r[0].transcript.trim(); if(t) micQ.push(t); } else interim += r[0].transcript;
+    }
+    const inp = $('#askInput'); if(inp && interim && !micQ.length) inp.value = interim;
+    if(micQ.length) drainMic();
+  };
+  rec.onerror = e=>{
+    if(e.error==='not-allowed' || e.error==='service-not-allowed'){ micOn=false; setMicUI(); toast('The microphone is blocked. Allow it in the browser address bar, then tap the mic again.'); }
+  };
+  rec.onend = ()=>{ rec=null; if(micOn && !micHold) setTimeout(startRec, 300); };
+  try{ rec.start(); }catch(e){ rec=null; }
+}
+function pauseMic(){ micHold = true; if(rec){ try{ rec.abort(); }catch(e){} } }
+function resumeMic(){ micHold = false; if(micOn && !rec) setTimeout(startRec, 350); }
+async function drainMic(){
+  if(draining) return; draining = true;
+  while(micQ.length){ const t = micQ.shift(); const inp=$('#askInput'); if(inp) inp.value = t; await sendAsk(true); }
+  draining = false;
+}
+function toggleMic(force){
+  if(!SR) return;
+  micOn = (typeof force==='boolean') ? force : !micOn;
+  if(micOn){ restarts=[]; startRec(); toast('Listening. Just talk, tap the mic again to stop.'); }
+  else { micQ=[]; if(rec){ try{ rec.stop(); }catch(e){} } const inp=$('#askInput'); if(inp) inp.value=''; }
+  setMicUI();
+}
 function setupVoice(){
   SR = window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR) return;
-  $('#micBtn').classList.remove('hidden');
-  $('#micBtn').onclick = ()=>{
-    if(rec){ rec.stop(); return; }
-    rec = new SR(); rec.lang='en-AU'; rec.interimResults=false; rec.maxAlternatives=1;
-    $('#micBtn').classList.add('live');
-    rec.onresult = e=>{ $('#askInput').value = e.results[0][0].transcript; sendAsk(); };
-    rec.onend = ()=>{ rec=null; $('#micBtn').classList.remove('live'); };
-    rec.onerror = ()=>{ rec=null; $('#micBtn').classList.remove('live'); toast('Could not hear that. Try typing.'); };
-    try{ rec.start(); }catch(e){ rec=null; $('#micBtn').classList.remove('live'); }
-  };
+  $('#micBtn').classList.remove('hidden'); setMicUI();
+  $('#micBtn').onclick = ()=>toggleMic();
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && micOn && !rec && !micHold) startRec(); });
 }
 let asking=false;
-async function sendAsk(){
+async function sendAsk(wait){
+  if(wait){ let n=0; while(asking && n++<300) await new Promise(r=>setTimeout(r,200)); }
   const inp=$('#askInput'), t=inp.value.trim(); if(!t||asking) return;
+  if(TAB!=='ask') go('ask');
   asking=true; inp.value='';
   try{ await ask(t); }catch(e){ ASKLOG.push({r:'ai',t:'That did not work: '+(e.message||'unknown error')}); renderAsk(); }
   asking=false;
@@ -999,7 +1344,11 @@ async function sendAsk(){
 
 // ---------- events ----------
 document.addEventListener('click', async e=>{
-  const t = e.target.closest('button,[data-lead],[data-client],[data-quick],[data-convo],[data-member]'); if(!t) return;
+  const t = e.target.closest('button,[data-lead],[data-client],[data-quick],[data-convo],[data-member],[data-sel]'); if(!t) return;
+  if(t.dataset.sel){ SEL=t.dataset.sel; renderToday(); return; }
+  if(t.dataset.skip){ const p=pending(); const i=p.findIndex(q=>q.id===t.dataset.skip); if(p.length>1) SEL=p[(i+1)%p.length].id; renderToday(); return; }
+  if(t.dataset.edit){ const ta=document.querySelector('[data-body="'+t.dataset.edit+'"]'); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); } return; }
+  if(t.dataset.go){ go(t.dataset.go); return; }
   if(t.dataset.act){
     const q = Q.find(x=>x.id===t.dataset.id); if(!q) return;
     const bodyEl = document.querySelector('[data-body="'+q.id+'"]'); if(bodyEl && bodyEl.value!==q.body) await setQ(q,{body:bodyEl.value});
@@ -1022,7 +1371,7 @@ document.addEventListener('click', async e=>{
   }
   if(t.dataset.lead){ const l=leadOf(t.dataset.lead); if(l) leadSheet(l); return; }
   if(t.dataset.client){ const c=clientOf(t.dataset.client); if(c) clientSheet(c); return; }
-  if(t.dataset.convo){ conversationThreadSheet(t.dataset.convo); return; }
+  if(t.dataset.convo){ if(DESK() && TAB==='inbox'){ INBOX_SEL=t.dataset.convo; renderInbox(); } else conversationThreadSheet(t.dataset.convo); return; }
   if(t.dataset.member){ memberSheet(t.dataset.member); return; }
   if(t.dataset.quick){ $('#askInput').value=t.dataset.quick; sendAsk(); return; }
   if(t.dataset.f && t.classList.contains('chip')){ renderLeads(t.dataset.f); return; }
@@ -1034,10 +1383,25 @@ document.addEventListener('click', async e=>{
   if(t.id==='ideaBtn'){ sheet('One reel idea',`<div class="fld"><label>What is it about?</label><input class="inp" id="ideaTopic" placeholder="e.g. why most people stall on bench"></div><button class="btn pri" id="ideaGo" style="width:100%">Draft it</button>`,b=>{
       $('#ideaGo',b).onclick=()=>working($('#ideaGo',b),'Drafting...',async()=>{ const tp=$('#ideaTopic',b).value.trim(); if(!tp){ toast('Add a topic'); return; } await oneIdea(tp); closeSheet(); renderContent(); setBadge(); toast('Drafted'); }); }); return; }
   if(t.id==='askSend') return sendAsk();
-  if(t.id==='btnSettings') return settingsSheet();
+  if(t.id==='btnSettings' || t.id==='meCard') return settingsSheet();
+  if(t.id==='bell') return go(pending().length ? 'today' : 'inbox');
   if(t.classList.contains('tab')) return go(t.dataset.tab);
 });
-document.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target.id==='askInput') sendAsk(); if(e.key==='Escape') closeSheet(); });
+document.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && e.target.id==='askInput') sendAsk();
+  if(e.key==='Escape') closeSheet();
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='k'){ e.preventDefault(); const i=$('#askInput'); if(i && !$('#askbar').classList.contains('hidden')) i.focus(); return; }
+  const tgt=e.target; if(tgt && /^(INPUT|TEXTAREA|SELECT)$/.test(tgt.tagName)) return;
+  if(TAB!=='today' || $('#ov') || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k=e.key.toLowerCase(), p=pending(); if(!p.length) return;
+  const i=Math.max(0,p.findIndex(q=>q.id===SEL));
+  if(k==='j'){ SEL=p[(i+1)%p.length].id; renderToday(); }
+  else if(k==='k'){ SEL=p[(i-1+p.length)%p.length].id; renderToday(); }
+  else if(k==='s'){ SEL=p[(i+1)%p.length].id; renderToday(); }
+  else if(k==='a'){ const b=document.querySelector('[data-act="approve"][data-id="'+SEL+'"]'); if(b) b.click(); }
+  else if(k==='e'){ e.preventDefault(); const b=document.querySelector('[data-edit="'+SEL+'"]'); if(b) b.click(); }
+});
+try{ window.matchMedia('(min-width:900px)').addEventListener('change', ()=>{ if(ME) go(TAB); }); }catch(e){}
 document.addEventListener('change', async e=>{
   if(e.target.matches('[data-body]')){ const q=Q.find(x=>x.id===e.target.dataset.body); if(q) await setQ(q,{body:e.target.value}); }
 });
@@ -1087,6 +1451,7 @@ async function start(){
     return;
   }
   setupVoice(); go('today');
+  const nm = ownerFirstName(); if($('#meName')){ $('#meName').textContent=nm; $('#meAv').textContent=nm.charAt(0).toUpperCase(); $('#meRole').textContent = IS_OWNER?'Owner':'Team'; }
 }
 async function loadAll(){
   const r = await Promise.all([db.list('queue'),db.list('leads'),db.list('clients'),db.list('staff'),db.list('messages')]);
