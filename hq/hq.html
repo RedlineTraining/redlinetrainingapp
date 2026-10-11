@@ -915,6 +915,7 @@ function settingsSheet(){
       <button class="btn" id="sTeam">Team &amp; access</button>
       <button class="btn" id="sNotif">Notifications</button>
     </div>
+    <div class="row"><button class="btn" id="sIG">Post to Instagram</button></div>
     <div class="row"><button class="btn ghost" id="sOut">Sign out</button><button class="btn pri" id="sSave">Save</button></div>`, b=>{
     $('#sSave',b).onclick = async ()=>{
       S = { handle:$('#sHandle',b).value.trim(), niche:$('#sNiche',b).value.trim(), offer:$('#sOffer',b).value.trim(), price:$('#sPrice',b).value.trim(), tone:$('#sTone',b).value.trim(), dmCap:Number($('#sCap',b).value)||20 };
@@ -934,6 +935,124 @@ function settingsSheet(){
     $('#sOut',b).onclick = async ()=>{ if(sb) await sb.auth.signOut(); location.reload(); };
     $('#sTeam',b).onclick = ()=>{ closeSheet(); teamSheet(); };
     $('#sNotif',b).onclick = ()=>{ closeSheet(); notificationsSheet(); };
+    $('#sIG',b).onclick = ()=>{ closeSheet(); igPostSheet(); };
+  });
+}
+
+// ---------- Post to Instagram ----------
+// Uploads the photo/video to free Supabase storage (Instagram needs a public link to fetch it from),
+// then asks the server to publish it to your connected Instagram account.
+function jpegFrom(file){
+  return new Promise((res,rej)=>{
+    const img=new Image(), u=URL.createObjectURL(file);
+    img.onload=()=>{ const w=Math.min(1440,img.naturalWidth), h=Math.round(img.naturalHeight*w/img.naturalWidth);
+      const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+      c.toBlob(b=>{ URL.revokeObjectURL(u); b?res(b):rej(new Error('Could not read that photo.')); },'image/jpeg',0.92); };
+    img.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error('Could not read that photo. Try a JPG or PNG.')); };
+    img.src=u;
+  });
+}
+// Branded text card (headline + 3 points + logo), drawn on a canvas so it looks designed, not AI-generated.
+let _logoImg=null;
+function loadLogo(){ return new Promise(r=>{ if(_logoImg) return r(_logoImg); const i=new Image(); i.onload=()=>{_logoImg=i;r(i);}; i.onerror=()=>r(null); i.src='icons/redline-logo.png'; }); }
+async function renderCard(canvas, card, story){
+  const W=1080, H=story?1920:1350; canvas.width=W; canvas.height=H; const x=canvas.getContext('2d');
+  try{ await document.fonts.load('700 100px "Barlow Condensed"'); await document.fonts.load('500 40px "Inter"'); }catch(e){}
+  x.fillStyle='#08090A'; x.fillRect(0,0,W,H);
+  const g=x.createRadialGradient(W*0.85,0,0,W*0.85,0,W*0.9); g.addColorStop(0,'rgba(232,48,42,0.28)'); g.addColorStop(1,'rgba(232,48,42,0)'); x.fillStyle=g; x.fillRect(0,0,W,H);
+  const pad=86, top=story?260:120;
+  const logo=await loadLogo(); if(logo) x.drawImage(logo,40,205,432,100,pad-12,top,372,86);
+  const wrap=(t,font,max)=>{ x.font=font; const w=String(t).split(/\s+/), out=[]; let l=''; for(const k of w){ const tt=l?l+' '+k:k; if(x.measureText(tt).width>max&&l){ out.push(l); l=k; } else l=tt; } if(l) out.push(l); return out; };
+  let y=top+(story?240:210);
+  x.fillStyle='#F5F5F5';
+  let size=story?150:132, lines;
+  for(;size>=80;size-=6){ lines=wrap(String(card.headline||'').toUpperCase(),'700 '+size+'px "Barlow Condensed", Impact, sans-serif',W-pad*2); if(lines.length<=3) break; }
+  x.font='700 '+size+'px "Barlow Condensed", Impact, sans-serif';
+  for(const l of lines){ x.fillText(l,pad,y); y+=size*0.98; }
+  y+=36; x.fillStyle='#E8302A'; x.fillRect(pad,y,120,8); y+=84;
+  x.fillStyle='#D8D8DA';
+  for(const p of (card.lines||[]).slice(0,3)){
+    const ls=wrap(p,'500 46px "Inter", Arial, sans-serif',W-pad*2-60);
+    x.fillStyle='#E8302A'; x.fillRect(pad,y-30,14,14);
+    x.fillStyle='#D8D8DA'; x.font='500 46px "Inter", Arial, sans-serif';
+    for(const l of ls){ x.fillText(l,pad+44,y); y+=62; }
+    y+=26;
+  }
+  x.fillStyle='#8A8D93'; x.font='500 34px "Inter", Arial, sans-serif';
+  x.fillText(S.handle?(S.handle.startsWith('@')?S.handle:'@'+S.handle):'@redline.training', pad, H-(story?260:96));
+}
+const canvasJpeg = c => new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error('Could not make the image.')),'image/jpeg',0.92));
+
+function igPostSheet(){
+  sheet('Post to Instagram', `
+    <div class="help">Nothing is posted until you press <b>Post now</b>.</div>
+    <div class="fld"><label>How do you want to make it?</label><select class="sel" id="igMode">
+      <option value="ai">Give a topic, HQ writes it and makes the graphic</option>
+      <option value="manual">I have my own photo or video</option></select></div>
+    <div class="fld"><label>What are you posting?</label><select class="sel" id="igKind"></select></div>
+    <div id="igAI">
+      <div class="fld"><label>Topic or prompt</label><textarea class="ta" id="igTopic" rows="3" placeholder="e.g. why most people stall on protein, or: 3 mistakes new runners make"></textarea></div>
+      <button class="btn" id="igMake" type="button">Make it</button>
+      <div id="igPrevWrap" style="display:none;margin-top:14px">
+        <canvas id="igPrev" style="width:100%;border-radius:12px;border:1px solid var(--line,#222)"></canvas>
+        <div class="fld" style="margin-top:12px"><label>Headline</label><input class="inp" id="igHead"></div>
+        <div class="fld"><label>Three points</label><textarea class="ta" id="igPts" rows="3"></textarea></div>
+      </div>
+    </div>
+    <div id="igManual"><div class="fld"><label>Photo or video</label><input class="inp" id="igFile" type="file" accept="image/*,video/*"></div></div>
+    <div class="fld" id="igCapWrap"><label>Caption</label><textarea class="ta" id="igCap" rows="5" placeholder="Write your caption"></textarea></div>
+    <div class="help" id="igNote"></div>
+    <div class="row"><button class="btn pri" id="igGo">Post now</button></div>`, b=>{
+    const mode=$('#igMode',b), kind=$('#igKind',b), note=$('#igNote',b);
+    let card=null;
+    const KINDS={ photo:'Photo post', reel:'Reel (video)', story_photo:'Story (photo)', story_video:'Story (video)' };
+    const upd=()=>{
+      const ai_=mode.value==='ai', cur=kind.value;
+      const opts = ai_ ? ['photo','story_photo'] : ['photo','reel','story_photo','story_video'];
+      kind.innerHTML = opts.map(k=>`<option value="${k}" ${k===cur?'selected':''}>${KINDS[k]}</option>`).join('');
+      const k=kind.value;
+      $('#igAI',b).style.display = ai_?'':'none'; $('#igManual',b).style.display = ai_?'none':'';
+      $('#igCapWrap',b).style.display = k.startsWith('story')?'none':'';
+      $('#igFile',b).accept = (k==='photo'||k==='story_photo')?'image/*':'video/*';
+      note.textContent = ai_ ? 'HQ writes the caption and builds a Redline-branded graphic. You can edit anything before posting. Reels need a real video, so use "I have my own photo or video" for those.'
+        : k==='reel' ? 'Reels: MP4 video, up to 90 seconds, vertical works best. Pick trending audio in the Instagram app after if you want it.'
+        : k.startsWith('story') ? 'Stories disappear after 24 hours. Stickers and music can only be added in the Instagram app.' : 'Photos are converted to JPEG for you.';
+    };
+    mode.onchange=()=>{ upd(); }; kind.onchange=()=>{ upd(); if(card) redraw(); }; upd();
+    const redraw=async()=>{ if(!card) return; card.headline=$('#igHead',b).value; card.lines=$('#igPts',b).value.split('\n').map(t=>t.trim()).filter(Boolean).slice(0,3); await renderCard($('#igPrev',b), card, kind.value==='story_photo'); };
+    $('#igHead',b).oninput=()=>redraw(); $('#igPts',b).oninput=()=>redraw();
+    $('#igMake',b).onclick = ()=>working($('#igMake',b),'Writing...',async()=>{
+      const topic=$('#igTopic',b).value.trim(); if(!topic) throw new Error('Type a topic first.');
+      const j = await aiJSON('Write one Instagram post for this topic: "'+topic+'".\nReturn JSON only: {"headline": "punchy, max 7 words, no full stop", "lines": ["3 short, specific points, max 10 words each"], "caption": "the caption in my voice, 350 characters or fewer, plain and human, one useful idea, a soft call to action like asking them to DM a word, no hashtags in it", "hashtags": ["max 5 relevant hashtags without the # symbol"]}\nNo emojis unless they feel natural. Do not sound like an AI: no "Here\'s the thing", no lists of three adjectives, no hype.', 1500);
+      card={ headline:String(j.headline||'').trim(), lines:(j.lines||[]).map(String).slice(0,3) };
+      $('#igHead',b).value=card.headline; $('#igPts',b).value=card.lines.join('\n');
+      $('#igCap',b).value = String(j.caption||'').trim() + ((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
+      $('#igPrevWrap',b).style.display=''; await redraw();
+    });
+    $('#igGo',b).onclick = ()=>working($('#igGo',b),'Posting...',async()=>{
+      const k=kind.value, isPhoto=(k==='photo'||k==='story_photo'), ai_=mode.value==='ai';
+      let blob, ext, ctype;
+      if(DEMO){ toast('Demo mode: nothing was posted.'); return; }
+      if(ai_){
+        if(!card) throw new Error('Press "Make it" first and check the result.');
+        await redraw(); blob=await canvasJpeg($('#igPrev',b)); ext='jpg'; ctype='image/jpeg';
+      } else {
+        const f=$('#igFile',b).files[0]; if(!f) throw new Error('Choose a photo or video first.');
+        if(!isPhoto && f.size>50*1024*1024) throw new Error('That video is over 50 MB. Export a smaller one.');
+        blob = isPhoto ? await jpegFrom(f) : f; ext = isPhoto ? 'jpg' : (f.name.split('.').pop()||'mp4').toLowerCase(); ctype = isPhoto?'image/jpeg':(f.type||'video/mp4');
+      }
+      const path = ME.id+'/'+Date.now()+'.'+ext;
+      const up = await sb.storage.from('ig-media').upload(path, blob, { contentType: ctype });
+      if(up.error) throw new Error('Upload failed: '+up.error.message+' (has the storage SQL been run?)');
+      const url = sb.storage.from('ig-media').getPublicUrl(path).data.publicUrl;
+      const { data } = await sb.auth.getSession();
+      const r = await fetch(SUPABASE_URL+'/functions/v1/instagram', { method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+data.session.access_token},
+        body: JSON.stringify({ action:'publish', kind:k, url, caption:$('#igCap',b).value.trim() }) });
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok||j.error) throw new Error(j.error||('Instagram request failed ('+r.status+')'));
+      closeSheet(); toast('Posted to Instagram'); if(j.permalink) window.open(j.permalink,'_blank');
+    });
   });
 }
 
