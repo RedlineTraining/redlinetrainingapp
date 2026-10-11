@@ -966,6 +966,12 @@ async function pushStatus(){
   }catch(e){ return 'off'; }
 }
 
+async function savePushSub(sub){
+  if(DEMO) return null;
+  const j = sub.toJSON();
+  const { error } = await sb.from('push_subs').upsert([{ user_id:ME.id, endpoint:j.endpoint, keys:j.keys }], { onConflict:'endpoint' });
+  return error ? (error.message || String(error)) : null;
+}
 async function enablePush(){
   if(!('serviceWorker' in navigator) || !('PushManager' in window)){ toast('Push is not supported in this browser.'); return false; }
   if(VAPID_PUBLIC_KEY.indexOf('PASTE') === 0){ toast('Push keys are not set up yet — see NOTIFICATIONS-SETUP.md.'); return false; }
@@ -976,9 +982,9 @@ async function enablePush(){
   if(!sub){
     sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToUint8(VAPID_PUBLIC_KEY) });
   }
-  const j = sub.toJSON();
   if(DEMO){ toast('Push enabled (demo — nothing is actually sent).'); return true; }
-  await db.upsert('push_subs', [{ user_id:ME.id, endpoint:j.endpoint, keys:j.keys }], 'endpoint');
+  const err = await savePushSub(sub);
+  if(err){ sheet('Could not save this device', '<div class="help" style="font-size:14px;color:var(--text)">The phone allowed notifications, but the server refused to save this device:</div><div class="code">'+esc(err)+'</div><div class="help">Tell Claude this exact message.</div><button class="btn pri" id="psOk" style="width:100%">OK</button>', b=>{ $('#psOk',b).onclick=closeSheet; }); return false; }
   toast('Notifications enabled on this device.');
   return true;
 }
@@ -991,6 +997,7 @@ async function notificationsSheet(){
     <button class="btn ${status==='on'?'':'pri'}" id="pushBtn" style="width:100%;margin-bottom:14px;">
       ${status==='on'?'Notifications are on for this device':status==='denied'?'Blocked — enable in your browser settings':'Enable notifications on this device'}
     </button>
+    <div class="help hidden" id="pushWarn" style="color:var(--red);font-size:13px;"></div>
     ${status==='on'?'<button class="btn" id="pushTest" style="width:100%;margin:-4px 0 14px;">Send me a test notification</button>':''}
     ${NOTIF_EVENTS.map(([ev,label])=>{
       const p = prefs[ev] || {push:true, email:false};
@@ -1017,6 +1024,7 @@ async function notificationsSheet(){
     <div class="help">Each client can switch these off for themselves in their app. Nothing is sent in the middle of the night.</div>
     <button class="btn pri" id="notifSave" style="width:100%">Save</button>
   `, b=>{
+    if(status==='on' && !DEMO){ (async()=>{ try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); if(!sub) return; const err=await savePushSub(sub); const w=$('#pushWarn',b); if(w && err){ w.textContent='This device is not saved on the server: '+err; w.classList.remove('hidden'); } }catch(e){} })(); }
     const pt=$('#pushTest',b); if(pt) pt.onclick = ()=>working(pt,'Sending...',async()=>{ const j = await notify(ME.id,'test','Redline HQ','This is a test. If you can read this, notifications work.','') || {};
       let m;
       if(j.error) m = 'Server error: '+j.error+(/404|Failed to fetch|NetworkError/i.test(j.error)?' (is the notify function deployed?)':'');
