@@ -1207,15 +1207,16 @@ function igPostSheet(){
     const mode=$('#igMode',b), kind=$('#igKind',b), note=$('#igNote',b);
     let card=null;
     const KINDS={ photo:'Photo post', reel:'Reel (video)', story_photo:'Story (photo)', story_video:'Story (video)' };
+    const AIKINDS={ photo:'Photo post', story_photo:'Story (photo)', story_video:'Story (animated video, good for a test)', reel:'Reel (animated video)' };
     const upd=()=>{
       const ai_=mode.value==='ai', cur=kind.value;
-      const opts = ai_ ? ['photo','story_photo'] : ['photo','reel','story_photo','story_video'];
-      kind.innerHTML = opts.map(k=>`<option value="${k}" ${k===cur?'selected':''}>${KINDS[k]}</option>`).join('');
+      const opts = ai_ ? ['photo','story_photo'].concat(reelMime()?['story_video','reel']:[]) : ['photo','reel','story_photo','story_video'];
+      kind.innerHTML = opts.map(k=>`<option value="${k}" ${k===cur?'selected':''}>${(ai_?AIKINDS:KINDS)[k]}</option>`).join('');
       const k=kind.value;
       $('#igAI',b).style.display = ai_?'':'none'; $('#igManual',b).style.display = ai_?'none':'';
       $('#igCapWrap',b).style.display = k.startsWith('story')?'none':'';
       $('#igFile',b).accept = (k==='photo'||k==='story_photo')?'image/*':'video/*';
-      note.textContent = ai_ ? 'HQ writes the caption and builds a Redline-branded graphic. You can edit anything before posting. Reels need a real video, so use "I have my own photo or video" for those.'
+      note.textContent = ai_ ? 'HQ writes the caption and builds a Redline-branded graphic. You can edit anything before posting. Animated videos take about 15 seconds to record, so keep this screen open while it posts.'
         : k==='reel' ? 'Reels: MP4 video, up to 90 seconds, vertical works best. Pick trending audio in the Instagram app after if you want it.'
         : k.startsWith('story') ? 'Stories disappear after 24 hours. Stickers and music can only be added in the Instagram app.' : 'Photos are converted to JPEG for you.';
     };
@@ -1224,19 +1225,21 @@ function igPostSheet(){
     $('#igHead',b).oninput=()=>redraw(); $('#igPts',b).oninput=()=>redraw();
     $('#igMake',b).onclick = ()=>working($('#igMake',b),'Writing...',async()=>{
       const topic=$('#igTopic',b).value.trim(); if(!topic) throw new Error('Type a topic first.');
-      const j = await aiJSON('Write one Instagram post for this topic: "'+topic+'".\nReturn JSON only: {"headline": "punchy, max 7 words, no full stop", "lines": ["3 short, specific points, max 10 words each"], "caption": "the caption in my voice, 350 characters or fewer, plain and human, one useful idea, a soft call to action like asking them to DM a word, no hashtags in it", "hashtags": ["max 5 relevant hashtags without the # symbol"]}\nNo emojis unless they feel natural. Do not sound like an AI: no "Here\'s the thing", no lists of three adjectives, no hype.', 1500);
-      card={ headline:String(j.headline||'').trim(), lines:(j.lines||[]).map(String).slice(0,3) };
+      const j = await aiJSON('Write one Instagram post for this topic: "'+topic+'".\nReturn JSON only: {"headline": "punchy, max 7 words, no full stop", "lines": ["3 short, specific points, max 10 words each"], "caption": "the caption in my voice, 350 characters or fewer, plain and human, one useful idea, a soft call to action like asking them to DM a word, no hashtags in it", "hashtags": ["max 5 relevant hashtags without the # symbol"], "word": "ONE uppercase keyword people can DM me, e.g. PROTEIN"}\nNo emojis unless they feel natural. Do not sound like an AI: no "Here\'s the thing", no lists of three adjectives, no hype.', 1500);
+      card={ headline:String(j.headline||'').trim(), lines:(j.lines||[]).map(String).slice(0,3), word:String(j.word||'COACH') };
       $('#igHead',b).value=card.headline; $('#igPts',b).value=card.lines.join('\n');
       $('#igCap',b).value = String(j.caption||'').trim() + ((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
       $('#igPrevWrap',b).style.display=''; await redraw();
     });
     $('#igGo',b).onclick = ()=>working($('#igGo',b),'Posting...',async()=>{
       const k=kind.value, isPhoto=(k==='photo'||k==='story_photo'), ai_=mode.value==='ai';
+      if(ai_&&(k==='reel'||k==='story_video')&&!reelMime()) throw new Error('This browser cannot save MP4 reels. Use an up-to-date Chrome or Safari.');
       let blob, ext, ctype;
       if(DEMO){ toast('Demo mode: nothing was posted.'); return; }
       if(ai_){
         if(!card) throw new Error('Press "Make it" first and check the result.');
-        await redraw(); blob=await canvasJpeg($('#igPrev',b)); ext='jpg'; ctype='image/jpeg';
+        if(k==='reel'||k==='story_video'){ blob=await makeReelBlob(card); ext='mp4'; ctype='video/mp4'; }
+        else { await redraw(); blob=await canvasJpeg($('#igPrev',b)); ext='jpg'; ctype='image/jpeg'; }
       } else {
         const f=$('#igFile',b).files[0]; if(!f) throw new Error('Choose a photo or video first.');
         if(!isPhoto && f.size>50*1024*1024) throw new Error('That video is over 50 MB. Export a smaller one.');
