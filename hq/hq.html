@@ -434,11 +434,14 @@ async function notify(userId, event, title, body, link){
     const { data } = await sb.auth.getSession();
     const token = data && data.session && data.session.access_token;
     if(!token) return;
-    await fetch(SUPABASE_URL+'/functions/v1/notify', {
+    const r = await fetch(SUPABASE_URL+'/functions/v1/notify', {
       method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
       body: JSON.stringify({ user_id:userId, event, title, body, link:link||'' })
     });
-  }catch(e){ console.warn('notify failed', e); }
+    let j={}; try{ j=await r.json(); }catch(e){}
+    if(!r.ok) j.error = j.error || ('HTTP '+r.status);
+    return j;
+  }catch(e){ console.warn('notify failed', e); return { error:String(e.message||e) }; }
 }
 
 // ---------- AI ----------
@@ -568,7 +571,7 @@ function setBadge(){
   const n = pending().length; const b=$('#nToday'); b.textContent=n; b.classList.toggle('hidden', n===0);
   const needsReply = conversationsFromMessages().filter(c=>c.needsReply||c.flagged).length;
   const ib=$('#nInbox'); if(ib){ ib.textContent=needsReply; ib.classList.toggle('hidden', needsReply===0); }
-  const bl=$('#nBell'); if(bl){ const tot=n+needsReply; bl.textContent=tot; bl.classList.toggle('hidden', tot===0); }
+  const bl=$('#nBell'); if(bl){ const tot=n+needsReply; bl.textContent=tot; bl.classList.toggle('hidden', tot===0); document.title = (tot?'('+tot+') ':'')+'Redline HQ'; }
 }
 
 function qExtra(q){
@@ -1014,7 +1017,14 @@ async function notificationsSheet(){
     <div class="help">Each client can switch these off for themselves in their app. Nothing is sent in the middle of the night.</div>
     <button class="btn pri" id="notifSave" style="width:100%">Save</button>
   `, b=>{
-    const pt=$('#pushTest',b); if(pt) pt.onclick = ()=>working(pt,'Sending...',async()=>{ await notify(ME.id,'test','Redline HQ','This is a test. If you can read this, notifications work.',''); toast('Sent. It should arrive in a few seconds.'); });
+    const pt=$('#pushTest',b); if(pt) pt.onclick = ()=>working(pt,'Sending...',async()=>{ const j = await notify(ME.id,'test','Redline HQ','This is a test. If you can read this, notifications work.','') || {};
+      let m;
+      if(j.error) m = 'Server error: '+j.error+(/404|Failed to fetch|NetworkError/i.test(j.error)?' (is the notify function deployed?)':'');
+      else if(j.configured===false) m = 'The server has no push keys yet. Step 2 of the guide did not take.';
+      else if(!j.subs) m = 'The server has no saved device for you. Turn notifications off and on again, then retest.';
+      else if(j.devices>0) m = 'Sent to '+j.devices+' device'+(j.devices>1?'s':'')+'. It should pop up now.';
+      else m = 'The server tried '+j.subs+' device(s) and all failed: '+((j.errors||[])[0]||'unknown');
+      sheet('Test result', '<div class="help" style="font-size:14px;color:var(--text)">'+esc(m)+'</div><button class="btn pri" id="trOk" style="width:100%">OK</button>', b=>{ $('#trOk',b).onclick=closeSheet; }); });
     $('#pushBtn',b).onclick = ()=>working($('#pushBtn',b),'Enabling...',async()=>{ if(await enablePush()){ closeSheet(); notificationsSheet(); } });
     $$('[data-ev]',b).forEach(el=>el.onclick=()=>el.classList.toggle('on'));
     $('#notifSave',b).onclick = ()=>working($('#notifSave',b),'Saving...',async()=>{
@@ -1460,7 +1470,7 @@ async function start(){
       `<button class="btn pri" style="width:100%" onclick="location.reload()">Try again</button>`);
     return;
   }
-  setupVoice(); go('today');
+  setupVoice(); go('today'); startLive();
   const nm = ownerFirstName(); if($('#meName')){ $('#meName').textContent=nm; $('#meAv').textContent=nm.charAt(0).toUpperCase(); $('#meRole').textContent = IS_OWNER?'Owner':'Team'; }
 }
 async function loadAll(){
@@ -1478,6 +1488,51 @@ async function loadAll(){
 }
 // Registering the service worker is what makes "Add to Home Screen" and
 // push notifications work at all. It's harmless to call repeatedly.
+// ---------- live updates ----------
+// New messages show up within a few seconds, with no reload. Light queries only,
+// paused while the tab is hidden, and never re-draws the screen while you are typing.
+let liveBusy=false, liveSlow=0;
+function busyTyping(){
+  const a=document.activeElement;
+  return !!$('#ov') || !!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.id!=='askInput');
+}
+function nameForMsg(m){
+  const c = m.client_id ? clientOf(m.client_id) : null, l = m.lead_id ? leadOf(m.lead_id) : null;
+  return c ? (c.display_name||c.email||'a client') : (l ? '@'+l.handle : 'someone');
+}
+async function liveTick(){
+  if(liveBusy || document.hidden || !ME) return; liveBusy=true;
+  try{
+    const since = MSGS.reduce((m,x)=> (x.created_at||'')>m ? x.created_at : m, '');
+    let rows;
+    if(DEMO) rows = rd('messages').filter(m=>(m.created_at||'')>since);
+    else { let q = sb.from('messages').select('*').order('created_at',{ascending:true}); if(since) q=q.gt('created_at',since); const r=await q; if(r.error) throw r.error; rows=r.data||[]; }
+    rows = rows.filter(r=>!MSGS.some(m=>m.id===r.id));
+    let changed = false;
+    if(rows.length){
+      MSGS = MSGS.concat(rows); changed = true;
+      const inc = rows.filter(r=>r.direction==='in');
+      if(inc.length) toast('New message from '+nameForMsg(inc[inc.length-1]));
+    }
+    if(Date.now()-liveSlow > 20000){
+      liveSlow = Date.now();
+      const [q2,l2,c2] = await Promise.all([db.list('queue'),db.list('leads'),db.list('clients')]);
+      const sig = x => JSON.stringify(x.map(r=>[r.id||r.user_id, r.status||r.stage, (r.body||'').length]));
+      if(sig(q2)!==sig(Q) || sig(l2)!==sig(L) || sig(c2)!==sig(C)){ Q=q2; L=l2; C=c2; changed = true; }
+    }
+    if(changed){
+      setBadge();
+      if(!busyTyping() && (TAB==='today' || TAB==='inbox' || TAB==='leads' || TAB==='clients' || TAB==='content')) render();
+    }
+  }catch(e){ /* try again next tick */ }
+  liveBusy=false;
+}
+function startLive(){
+  if(startLive.on) return; startLive.on=true;
+  setInterval(liveTick, 4000);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) liveTick(); });
+}
+
 function registerServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.register('sw.js').catch(e=>console.warn('Service worker registration failed:', e));
