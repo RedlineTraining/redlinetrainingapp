@@ -956,13 +956,16 @@ function b64ToUint8(base64){
   return out;
 }
 
+function sameKey(sub, keyB64){
+  try{ const k=sub.options && sub.options.applicationServerKey; if(!k) return false; const a=new Uint8Array(k), b=b64ToUint8(keyB64); return a.length===b.length && a.every((v,i)=>v===b[i]); }catch(e){ return false; }
+}
 async function pushStatus(){
   if(!('serviceWorker' in navigator) || !('PushManager' in window)) return 'unsupported';
   if(Notification.permission === 'denied') return 'denied';
   try{
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    return sub ? 'on' : 'off';
+    return (sub && sameKey(sub, VAPID_PUBLIC_KEY)) ? 'on' : 'off';
   }catch(e){ return 'off'; }
 }
 
@@ -979,6 +982,7 @@ async function enablePush(){
   if(perm !== 'granted'){ toast('Notifications were not allowed.'); return false; }
   const reg = await navigator.serviceWorker.ready;
   let sub = await reg.pushManager.getSubscription();
+  if(sub && !sameKey(sub, VAPID_PUBLIC_KEY)){ try{ await sub.unsubscribe(); }catch(e){} sub = null; }   // made with an older key: start fresh
   if(!sub){
     sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToUint8(VAPID_PUBLIC_KEY) });
   }
@@ -1024,10 +1028,11 @@ async function notificationsSheet(){
     <div class="help">Each client can switch these off for themselves in their app. Nothing is sent in the middle of the night.</div>
     <button class="btn pri" id="notifSave" style="width:100%">Save</button>
   `, b=>{
-    if(status==='on' && !DEMO){ (async()=>{ try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); if(!sub) return; const err=await savePushSub(sub); const w=$('#pushWarn',b); if(w && err){ w.textContent='This device is not saved on the server: '+err; w.classList.remove('hidden'); } }catch(e){} })(); }
+    if(status==='on' && !DEMO){ (async()=>{ try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); if(!sub || !sameKey(sub, VAPID_PUBLIC_KEY)) return; const err=await savePushSub(sub); const w=$('#pushWarn',b); if(w && err){ w.textContent='This device is not saved on the server: '+err; w.classList.remove('hidden'); } }catch(e){} })(); }
     const pt=$('#pushTest',b); if(pt) pt.onclick = ()=>working(pt,'Sending...',async()=>{ const j = await notify(ME.id,'test','Redline HQ','This is a test. If you can read this, notifications work.','') || {};
       let m;
       if(j.error) m = 'Server error: '+j.error+(/404|Failed to fetch|NetworkError/i.test(j.error)?' (is the notify function deployed?)':'');
+      else if(j.subs===undefined) m = j.status==='sent' ? 'The server says it SENT the notification to your phone. If nothing appeared, the problem is on the phone: check Settings → Notifications → Redline HQ is on, no Focus mode is active, and HQ was opened from the home-screen icon.' : 'The server skipped it (no saved device for you, or quiet hours). Your notify function is the older version, so it cannot say which. Check the push_subs table in Supabase.';
       else if(j.configured===false) m = 'The server has no push keys yet. Step 2 of the guide did not take.';
       else if(!j.subs) m = 'The server has no saved device for you. Turn notifications off and on again, then retest.';
       else if(j.devices>0) m = 'Sent to '+j.devices+' device'+(j.devices>1?'s':'')+'. It should pop up now.';
