@@ -915,7 +915,7 @@ function settingsSheet(){
       <button class="btn" id="sTeam">Team &amp; access</button>
       <button class="btn" id="sNotif">Notifications</button>
     </div>
-    <div class="row"><button class="btn" id="sIG">Post to Instagram</button></div>
+    <div class="row"><button class="btn" id="sIG">Post to Instagram</button><button class="btn" id="sPlan">Weekly plan</button></div>
     <div class="row"><button class="btn ghost" id="sOut">Sign out</button><button class="btn pri" id="sSave">Save</button></div>`, b=>{
     $('#sSave',b).onclick = async ()=>{
       S = { handle:$('#sHandle',b).value.trim(), niche:$('#sNiche',b).value.trim(), offer:$('#sOffer',b).value.trim(), price:$('#sPrice',b).value.trim(), tone:$('#sTone',b).value.trim(), dmCap:Number($('#sCap',b).value)||20 };
@@ -936,6 +936,7 @@ function settingsSheet(){
     $('#sTeam',b).onclick = ()=>{ closeSheet(); teamSheet(); };
     $('#sNotif',b).onclick = ()=>{ closeSheet(); notificationsSheet(); };
     $('#sIG',b).onclick = ()=>{ closeSheet(); igPostSheet(); };
+    $('#sPlan',b).onclick = ()=>{ closeSheet(); planSheet(); };
   });
 }
 
@@ -982,6 +983,206 @@ async function renderCard(canvas, card, story){
   x.fillText(S.handle?(S.handle.startsWith('@')?S.handle:'@'+S.handle):'@redline.training', pad, H-(story?260:96));
 }
 const canvasJpeg = c => new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error('Could not make the image.')),'image/jpeg',0.92));
+
+
+// ---------- Stories (call-to-action card) ----------
+async function renderCTA(canvas, c){
+  const W=1080,H=1920; canvas.width=W; canvas.height=H; const x=canvas.getContext('2d');
+  try{ await document.fonts.load('700 100px "Barlow Condensed"'); await document.fonts.load('600 40px "Inter"'); }catch(e){}
+  x.fillStyle='#08090A'; x.fillRect(0,0,W,H);
+  const g=x.createRadialGradient(W*0.2,H*0.9,0,W*0.2,H*0.9,W*1.1); g.addColorStop(0,'rgba(232,48,42,0.30)'); g.addColorStop(1,'rgba(232,48,42,0)'); x.fillStyle=g; x.fillRect(0,0,W,H);
+  const pad=96, logo=await loadLogo(); if(logo) x.drawImage(logo,40,205,432,100,pad-12,260,372,86);
+  const wrap=(t,font,max)=>{ x.font=font; const w=String(t).split(/\s+/), out=[]; let l=''; for(const k of w){ const tt=l?l+' '+k:k; if(x.measureText(tt).width>max&&l){ out.push(l); l=k; } else l=tt; } if(l) out.push(l); return out; };
+  let size=156, lines; for(;size>=84;size-=6){ lines=wrap(String(c.headline||'').toUpperCase(),'700 '+size+'px "Barlow Condensed", Impact, sans-serif',W-pad*2); if(lines.length<=4) break; }
+  x.fillStyle='#F5F5F5'; x.font='700 '+size+'px "Barlow Condensed", Impact, sans-serif';
+  let y=700; for(const l of lines){ x.fillText(l,pad,y); y+=size*0.98; }
+  y+=70; x.fillStyle='#BDBFC4'; x.font='600 48px "Inter", Arial, sans-serif'; x.fillText('DM me the word',pad,y); y+=40;
+  const word=String(c.word||'COACH').toUpperCase(); x.font='700 120px "Barlow Condensed", Impact, sans-serif';
+  const tw=x.measureText(word).width, bw=tw+90, bh=150;
+  x.fillStyle='#E8302A'; x.beginPath(); x.roundRect?x.roundRect(pad,y,bw,bh,22):x.rect(pad,y,bw,bh); x.fill();
+  x.fillStyle='#fff'; x.fillText(word,pad+45,y+112);
+  x.fillStyle='#8A8D93'; x.font='500 34px "Inter", Arial, sans-serif'; x.fillText(S.handle?(S.handle.startsWith('@')?S.handle:'@'+S.handle):'@redline.training', pad, H-260);
+}
+
+// ---------- Animated reel (drawn on a canvas and recorded to MP4, free, in the browser) ----------
+function reelMime(){
+  if(typeof MediaRecorder==='undefined') return '';
+  for(const m of ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1.42E01E','video/mp4;codecs=avc1.4D401F','video/mp4;codecs=avc1']) { try{ if(MediaRecorder.isTypeSupported(m)) return m; }catch(e){} }
+  return '';
+}
+const REEL_SECONDS=11.5;
+function reelLayout(x, card, W, H){
+  const pad=96, wrap=(t,font,max)=>{ x.font=font; const w=String(t).split(/\s+/), out=[]; let l=''; for(const k of w){ const tt=l?l+' '+k:k; if(x.measureText(tt).width>max&&l){ out.push(l); l=k; } else l=tt; } if(l) out.push(l); return out; };
+  let size=150, hl; for(;size>=84;size-=6){ hl=wrap(String(card.headline||'').toUpperCase(),'700 '+size+'px "Barlow Condensed", Impact, sans-serif',W-pad*2); if(hl.length<=4) break; }
+  const items=[]; let y=400+size;
+  hl.forEach(l=>{ items.push({t:l,font:'700 '+size+'px "Barlow Condensed", Impact, sans-serif',color:'#F5F5F5',x:pad,y,at:0.5,dur:0.7,dx:0,dy:50}); y+=size*0.98; });
+  const barY=y+30; y=barY+110;
+  (card.lines||[]).slice(0,3).forEach((p,i)=>{
+    const ls=wrap(p,'500 52px "Inter", Arial, sans-serif',W-pad*2-60), at=3.0+i*2.2;
+    items.push({bullet:true,x:pad,y:y-34,at,dur:0.5,dx:-60,dy:0,color:'#E8302A'});
+    ls.forEach(l=>{ items.push({t:l,font:'500 52px "Inter", Arial, sans-serif',color:'#D8D8DA',x:pad+46,y,at,dur:0.5,dx:-60,dy:0}); y+=70; });
+    y+=34;
+  });
+  return { items, barY, pad };
+}
+function drawReelFrame(x, t, card, lay, bg, logo){
+  const W=1080,H=1920; x.drawImage(bg,0,0);
+  const ease=u=>1-Math.pow(1-Math.min(1,Math.max(0,u)),3);
+  const endT=REEL_SECONDS-2.6, dim = t>endT ? Math.max(0.07, 1-ease((t-endT)/0.6)*0.93) : 1;
+  x.globalAlpha=1;
+  if(logo){ x.globalAlpha=ease(t/0.6)*(t>endT?dim:1); x.drawImage(logo,40,205,432,100,lay.pad-12,260,372,86); }
+  x.textBaseline='alphabetic';
+  for(const it of lay.items){
+    const u=ease((t-it.at)/it.dur); if(u<=0) continue;
+    x.globalAlpha=u*dim;
+    if(it.bullet){ x.fillStyle=it.color; x.fillRect(it.x+it.dx*(1-u),it.y,16,16); }
+    else { x.fillStyle=it.color; x.font=it.font; x.fillText(it.t,it.x+it.dx*(1-u),it.y+it.dy*(1-u)); }
+  }
+  const bu=ease((t-1.9)/0.6); if(bu>0){ x.globalAlpha=bu*dim; x.fillStyle='#E8302A'; x.fillRect(lay.pad,lay.barY,140*bu,9); }
+  if(t>endT){
+    const u=ease((t-endT-0.2)/0.6); x.globalAlpha=u; x.textAlign='center';
+    x.fillStyle='#BDBFC4'; x.font='600 54px "Inter", Arial, sans-serif'; x.fillText('DM me the word',W/2,H/2-60);
+    const word=String(card.word||'COACH').toUpperCase(); x.font='700 190px "Barlow Condensed", Impact, sans-serif';
+    const tw=x.measureText(word).width, bw=tw+110, bh=230, bx=W/2-bw/2, by=H/2-20;
+    x.fillStyle='#E8302A'; x.beginPath(); x.roundRect?x.roundRect(bx,by,bw,bh,28):x.rect(bx,by,bw,bh); x.fill();
+    x.fillStyle='#fff'; x.fillText(word,W/2,by+174);
+    x.textAlign='left';
+  }
+  x.globalAlpha=1;
+}
+async function makeReelBlob(card, onTick){
+  const mime=reelMime();
+  if(!mime) throw new Error('This browser cannot save MP4 reels. Use an up-to-date Chrome or Safari.');
+  try{ await document.fonts.load('700 100px "Barlow Condensed"'); await document.fonts.load('500 40px "Inter"'); }catch(e){}
+  const W=1080,H=1920;
+  const bg=document.createElement('canvas'); bg.width=W; bg.height=H; const bx=bg.getContext('2d');
+  bx.fillStyle='#08090A'; bx.fillRect(0,0,W,H);
+  const g=bx.createRadialGradient(W*0.85,0,0,W*0.85,0,W*1.1); g.addColorStop(0,'rgba(232,48,42,0.30)'); g.addColorStop(1,'rgba(232,48,42,0)'); bx.fillStyle=g; bx.fillRect(0,0,W,H);
+  const logo=await loadLogo(), cv=document.createElement('canvas'); cv.width=W; cv.height=H; const x=cv.getContext('2d');
+  const lay=reelLayout(x,card,W,H);
+  const stream=cv.captureStream(30), rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:4000000}), chunks=[];
+  rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+  const done=new Promise((res,rej)=>{ rec.onstop=()=>res(new Blob(chunks,{type:'video/mp4'})); rec.onerror=e=>rej(new Error('Recording failed.')); });
+  drawReelFrame(x,0,card,lay,bg,logo); rec.start(250);
+  const t0=performance.now();
+  await new Promise(res=>{ const step=()=>{ const t=(performance.now()-t0)/1000; drawReelFrame(x,Math.min(t,REEL_SECONDS),card,lay,bg,logo); if(onTick) onTick(Math.min(1,t/REEL_SECONDS)); if(t>=REEL_SECONDS) res(); else requestAnimationFrame(step); }; requestAnimationFrame(step); });
+  await new Promise(r=>setTimeout(r,200)); rec.stop();
+  const blob=await done;
+  if(blob.size<20000) throw new Error('The reel came out empty. Keep this tab open and in front while it records, then try again.');
+  return blob;
+}
+
+// ---------- Weekly plan: 1 post or reel a day, a story repost, and 2 call-to-action stories ----------
+const PLAN_TIMES={ cta1:'07:30', post:'12:00', repost:'17:00', cta2:'19:30' };
+const atLocal=(d,hhmm)=>{ const [h,m]=hhmm.split(':').map(Number); const x=new Date(d); x.setHours(h,m,0,0); return x.toISOString(); };
+async function putMedia(blob, ext, ctype){
+  if(DEMO) return URL.createObjectURL(blob);
+  const path=ME.id+'/plan/'+Date.now()+'-'+Math.random().toString(36).slice(2,7)+'.'+ext;
+  const up=await sb.storage.from('ig-media').upload(path, blob, { contentType:ctype });
+  if(up.error) throw new Error('Upload failed: '+up.error.message+' (has the storage SQL been run?)');
+  return sb.storage.from('ig-media').getPublicUrl(path).data.publicUrl;
+}
+async function planRows(){
+  const since=new Date(Date.now()-36*3600*1000).toISOString();
+  if(DEMO) return rd('ig_schedule').filter(r=>r.run_at>=since).sort((a,b)=>a.run_at<b.run_at?-1:1);
+  const { data, error } = await sb.from('ig_schedule').select('*').gte('run_at',since).order('run_at',{ascending:true});
+  if(error) throw error; return data||[];
+}
+async function generateWeek(reels, tick){
+  const rows=await planRows(); const recent=(await (async()=>{ if(DEMO) return rd('ig_schedule'); const {data}=await sb.from('ig_schedule').select('label,run_at').order('run_at',{ascending:false}).limit(40); return data||[]; })()).map(r=>r.label).filter(Boolean).slice(0,30);
+  let start=new Date(); start.setHours(0,0,0,0); start.setDate(start.getDate()+1);
+  const last=rows.filter(r=>r.status!=='skipped').map(r=>r.run_at).sort().pop();
+  if(last){ const ld=new Date(last); ld.setHours(0,0,0,0); ld.setDate(ld.getDate()+1); if(ld>start) start=ld; }
+  tick('Writing the week...');
+  const j=await aiJSON('Plan 7 days of Instagram content for my coaching business.\nFor EACH day give one feed post idea (a useful, specific coaching tip a real coach would say, drawn from my niche), plus two story call-to-action cards.\nReturn JSON only: {"days":[{"headline":"punchy, max 7 words, no full stop","lines":["3 short specific points, max 10 words each"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me about this post, e.g. PROTEIN","cta1":{"headline":"max 8 words, a low-pressure invitation tied to my offer, no price, no promises","word":"ONE uppercase DM keyword"},"cta2":{"headline":"max 8 words, a different angle to cta1","word":"ONE uppercase DM keyword"}}]}\nExactly 7 days. Vary the topics (training, nutrition, recovery, mindset, running, common mistakes). Do not sound like an AI: no "Here\'s the thing", no triplets of adjectives, no hype. '+(recent.length?'Do not repeat or closely echo these recent topics: '+recent.join(' | ')+'.':''), 6000);
+  const days=(j.days||[]).slice(0,7); if(days.length<7) throw new Error('The AI only wrote '+days.length+' days. Try again.');
+  const reelDays = reels>0 ? [1,3,5,6].slice(0,reels) : [];
+  const cv=document.createElement('canvas'); let made=0;
+  for(let i=0;i<7;i++){
+    const d=days[i], day=new Date(start); day.setDate(start.getDate()+i);
+    const card={headline:String(d.headline||'').trim(), lines:(d.lines||[]).map(String).slice(0,3), word:String(d.word||'COACH')};
+    const cap=String(d.caption||'').trim()+((d.hashtags&&d.hashtags.length)?('\n\n'+d.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
+    const mk=(r)=>Object.assign({owner:ME.id,caption:'',status:'draft'},r);
+    let parent;
+    if(reelDays.includes(i)){
+      tick('Day '+(i+1)+' of 7: recording the reel (keep this tab open)...');
+      const blob=await makeReelBlob(card,u=>tick('Day '+(i+1)+' of 7: recording the reel '+Math.round(u*100)+'% (keep this tab open)'));
+      const url=await putMedia(blob,'mp4','video/mp4');
+      [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:cap,label:card.headline,run_at:atLocal(day,PLAN_TIMES.post)})]);
+      await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+card.headline,run_at:atLocal(day,PLAN_TIMES.repost),repost_of:parent.id})]);
+    } else {
+      tick('Day '+(i+1)+' of 7: designing the post...');
+      await renderCard(cv,card,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
+      await renderCard(cv,card,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
+      [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:cap,label:card.headline,run_at:atLocal(day,PLAN_TIMES.post)})]);
+      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+card.headline,run_at:atLocal(day,PLAN_TIMES.repost),repost_of:parent.id})]);
+    }
+    for(const [k,key] of [['cta1','cta1'],['cta2','cta2']]){
+      const c=d[k]||{}; await renderCTA(cv,{headline:String(c.headline||'Want a plan that fits your week?').trim(),word:String(c.word||'COACH')});
+      const u=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
+      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u,label:'CTA story: '+String(c.headline||'').trim(),run_at:atLocal(day,PLAN_TIMES[key])})]);
+    }
+    made++;
+  }
+  return made;
+}
+const KIND_LABEL={photo:'Post',reel:'Reel',story_photo:'Story',story_video:'Story'};
+const fmtLocal=iso=>{ const d=new Date(iso); return d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}); };
+const dayHead=iso=>new Date(iso).toLocaleDateString([], {weekday:'long',day:'numeric',month:'short'});
+const toTimeVal=iso=>{ const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+async function planSheet(){
+  let rows=[]; try{ rows=await planRows(); }catch(e){ toast('Could not load the plan. Has the schedule SQL been run?'); return; }
+  const drafts=rows.filter(r=>r.status==='draft').length, approved=rows.filter(r=>r.status==='approved').length, failed=rows.filter(r=>r.status==='failed').length;
+  const chip=r=>({draft:'Needs approval',approved:'Scheduled',posting:'Posting...',posted:'Posted',failed:'Failed',skipped:'Skipped'})[r.status]||r.status;
+  const col=r=>({draft:'var(--red)',approved:'#3FB950',posting:'#D29922',posted:'var(--dim)',failed:'var(--red)',skipped:'var(--dim)'})[r.status]||'var(--dim)';
+  let lastDay='';
+  const list=rows.map(r=>{
+    const head = dayHead(r.run_at)!==lastDay ? (lastDay=dayHead(r.run_at), `<div style="font:600 15px 'Barlow Condensed',sans-serif;letter-spacing:.04em;color:var(--dim);text-transform:uppercase;margin:18px 0 8px">${esc(lastDay)}</div>`) : '';
+    const vid=r.kind.endsWith('video')||r.kind==='reel';
+    const media = vid ? `<video src="${esc(r.media_url)}" muted playsinline preload="metadata" style="width:54px;height:96px;object-fit:cover;border-radius:8px;background:#000"></video>` : `<img src="${esc(r.media_url)}" alt="" style="width:54px;height:${r.kind==='photo'?68:96}px;object-fit:cover;border-radius:8px;background:#000">`;
+    const editable = r.status==='draft'||r.status==='approved'||r.status==='failed';
+    return head+`<div class="plr" data-id="${r.id}" style="display:flex;gap:12px;padding:12px;border:1px solid var(--line2);border-radius:12px;background:var(--elev);margin-bottom:8px">
+      <div style="flex-shrink:0">${media}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b style="font-size:13px">${KIND_LABEL[r.kind]}${r.kind==='reel'?' (animated)':''}</b><span style="font-size:11px;font-weight:600;color:${col(r)}">${chip(r)}</span></div>
+        <div style="font-size:12px;color:var(--dim);margin:2px 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.label||'')}</div>
+        ${editable?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="time" class="inp plT" value="${toTimeVal(r.run_at)}" style="width:auto;padding:6px 8px;min-height:34px"></div>`:`<div style="font-size:12px;color:var(--dim)">${fmtLocal(r.run_at)}${r.permalink?` · <a href="${esc(r.permalink)}" target="_blank" style="color:var(--red)">view</a>`:''}</div>`}
+        ${(r.kind==='photo'||r.kind==='reel')&&editable?`<textarea class="ta plC" rows="3" style="font-size:13px">${esc(r.caption||'')}</textarea>`:''}
+        ${r.error?`<div style="font-size:12px;color:var(--red);margin-top:6px">${esc(r.error)}</div>`:''}
+        <div style="display:flex;gap:8px;margin-top:8px">
+          ${r.status==='draft'?`<button class="btn sm plApp">Approve</button>`:''}
+          ${r.status==='approved'?`<button class="btn sm plUn">Pause</button>`:''}
+          ${r.status==='failed'?`<button class="btn sm plRetry">Try again</button>`:''}
+          ${editable?`<button class="btn sm ghost plSkip">Skip</button>`:''}
+        </div>
+      </div></div>`;
+  }).join('') || '<div class="help">Nothing planned yet. Press the button below to write and design the next 7 days.</div>';
+  const canReel=!!reelMime();
+  sheet('Weekly plan', `
+    <div class="help">One post or reel a day, a story repost of it, and two call-to-action stories. Nothing goes out until you approve it. Approved items post by themselves at the time shown, even when HQ is closed.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><span class="pill">${drafts} to approve</span><span class="pill" style="color:#3FB950;border-color:rgba(63,185,80,.4)">${approved} scheduled</span>${failed?`<span class="pill">${failed} failed</span>`:''}</div>
+    <div class="fld"><label>Animated reels in the next 7 days</label><select class="sel" id="plReels">${[0,2,3,4].map(n=>`<option value="${n}" ${n===(canReel?3:0)?'selected':''} ${n>0&&!canReel?'disabled':''}>${n===0?'None, posts only':n+' reels, the rest posts'}</option>`).join('')}</select>${canReel?'':'<div class="help" style="margin-top:6px">This browser cannot save MP4 reels, so reels are off. Use an up-to-date Chrome or Safari for those.</div>'}</div>
+    <div class="row"><button class="btn" id="plGen">Write and design the next 7 days</button>${drafts?`<button class="btn pri" id="plAll">Approve all ${drafts}</button>`:''}</div>
+    <div id="plProg" class="help" style="margin-top:10px"></div>
+    ${list}`, b=>{
+    const idOf=el=>el.closest('.plr').dataset.id;
+    const reload=()=>{ closeSheet(); planSheet(); };
+    $('#plGen',b).onclick=()=>working($('#plGen',b),'Working...',async()=>{
+      const n=await generateWeek(Number($('#plReels',b).value), m=>{ $('#plProg',b).textContent=m; });
+      toast(n+' days ready to check'); reload();
+    });
+    const allBtn=$('#plAll',b); if(allBtn) allBtn.onclick=()=>working(allBtn,'Approving...',async()=>{
+      for(const r of rows.filter(r=>r.status==='draft')) await db.update('ig_schedule','id',r.id,{status:'approved',updated_at:new Date().toISOString()});
+      toast('All approved. They will post at their times.'); reload();
+    });
+    b.querySelectorAll('.plApp').forEach(x=>x.onclick=()=>working(x,'...',async()=>{ await db.update('ig_schedule','id',idOf(x),{status:'approved',updated_at:new Date().toISOString()}); reload(); }));
+    b.querySelectorAll('.plUn').forEach(x=>x.onclick=()=>working(x,'...',async()=>{ await db.update('ig_schedule','id',idOf(x),{status:'draft',updated_at:new Date().toISOString()}); reload(); }));
+    b.querySelectorAll('.plSkip').forEach(x=>x.onclick=()=>working(x,'...',async()=>{ await db.update('ig_schedule','id',idOf(x),{status:'skipped',updated_at:new Date().toISOString()}); reload(); }));
+    b.querySelectorAll('.plRetry').forEach(x=>x.onclick=()=>working(x,'...',async()=>{ await db.update('ig_schedule','id',idOf(x),{status:'approved',error:null,run_at:new Date().toISOString(),updated_at:new Date().toISOString()}); toast('Queued. It posts within 5 minutes.'); reload(); }));
+    b.querySelectorAll('.plC').forEach(x=>x.onchange=()=>working(null,'',async()=>{ await db.update('ig_schedule','id',idOf(x),{caption:x.value}); toast('Saved'); }));
+    b.querySelectorAll('.plT').forEach(x=>x.onchange=()=>working(null,'',async()=>{ const id=idOf(x), r=rows.find(q=>q.id===id); const d=new Date(r.run_at); const [h,m]=x.value.split(':').map(Number); d.setHours(h,m,0,0); await db.update('ig_schedule','id',id,{run_at:d.toISOString()}); r.run_at=d.toISOString(); toast('Time saved'); }));
+  });
+}
 
 function igPostSheet(){
   sheet('Post to Instagram', `
