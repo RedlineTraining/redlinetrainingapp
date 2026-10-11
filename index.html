@@ -4546,10 +4546,13 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
   const isStandalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
   function vapidKey(){ const k=String(CFG.vapidPublicKey||''); return (k && k.indexOf('PASTE')!==0 && k.length>40) ? k : ''; }
+  function sameKeyC(sub){
+    try{ const k=sub.options && sub.options.applicationServerKey; if(!k) return false; const a=new Uint8Array(k), b=b64ToU8(vapidKey()); return a.length===b.length && a.every((v,i)=>v===b[i]); }catch(e){ return false; }
+  }
   async function pushState(){
     if(!('serviceWorker' in navigator) || !('PushManager' in window)) return (isIOS && !isStandalone) ? 'needs-install' : 'unsupported';
     if(typeof Notification !== 'undefined' && Notification.permission==='denied') return 'denied';
-    try{ const reg=await navigator.serviceWorker.ready; return (await reg.pushManager.getSubscription()) ? 'on' : 'off'; }catch(e){ return 'off'; }
+    try{ const reg=await navigator.serviceWorker.ready; const ps = await reg.pushManager.getSubscription(); return (ps && sameKeyC(ps)) ? 'on' : 'off'; }catch(e){ return 'off'; }
   }
   async function refreshPushUI(){
     const st = await pushState();
@@ -4574,6 +4577,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
     if(perm!=='granted'){ showToast('Notifications were not allowed'); return; }
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
+    if(sub && !sameKeyC(sub)){ try{ await sub.unsubscribe(); }catch(e){} sub = null; }
     if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToU8(vapidKey()) });
     const j = sub.toJSON();
     const { error } = await sb.from('push_subs').upsert([{ user_id:currentUser.id, endpoint:j.endpoint, keys:j.keys }], { onConflict:'endpoint' });
@@ -4588,6 +4592,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
         body: JSON.stringify({ user_id:currentUser.id, event:'test', title:'Redline', body:'Test: if you can read this, notifications work.', link:'./' }) });
       let j = {}; try{ j = await r.json(); }catch(e){}
       if(!r.ok) out.textContent = 'Server error: '+(j.error||('HTTP '+r.status));
+      else if(j.subs===undefined) out.textContent = j.status==='sent' ? 'The server says it sent it. If nothing appeared, check iPhone Settings → Notifications → Redline.' : 'The server skipped it (no saved device, or quiet hours).';
       else if(j.configured===false) out.textContent = 'The server has no push keys yet.';
       else if(!j.subs) out.textContent = 'No saved device. Turn notifications off, then on again.';
       else if(j.devices>0) out.textContent = 'Sent to '+j.devices+' device(s). It should pop up now.';
