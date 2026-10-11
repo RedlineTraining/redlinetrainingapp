@@ -311,7 +311,7 @@ const dayKey = d => { d = d||new Date(); return d.getFullYear()+'-'+String(d.get
 const addDays = n => new Date(Date.now()+n*864e5).toISOString();
 const ago = iso => { if(!iso) return 'never'; const d=Math.floor((Date.now()-new Date(iso))/864e5); return d<=0?'today':d===1?'yesterday':d+' days ago'; };
 
-let sb=null, ME=null, S={}, Q=[], L=[], C=[], TAB='today', ASKLOG=[], IS_OWNER=false;
+let SCHED=[]; let sb=null, ME=null, S={}, Q=[], L=[], C=[], TAB='today', ASKLOG=[], IS_OWNER=false;
 let STAFF=[], MSGS=[], MYACCESS={}, MYPERMS={}, MYNOTIF={prefs:{},quiet_start:'22:00',quiet_end:'06:30'}, VAPID_PUBLIC='';
 
 function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),2600); }
@@ -645,11 +645,26 @@ function needsPanel(){
 }
 
 function nextUpPanel(){
-  const items = Q.filter(q=>['reel','post','story'].includes(q.kind) && (q.status==='draft'||q.status==='approved'));
-  const q = items.find(x=>x.status==='approved') || items[0];
+  const nowMs=Date.now();
+  const up=SCHED.filter(r=>['draft','approved','posting'].includes(r.status)&&new Date(r.run_at).getTime()>=nowMs-3600000).sort((a,b)=>a.run_at<b.run_at?-1:1);
+  const failed=SCHED.filter(r=>r.status==='failed').length, drafts=SCHED.filter(r=>r.status==='draft').length, sched=SCHED.filter(r=>r.status==='approved').length;
   const h = new Date().getHours()+new Date().getMinutes()/60; const pos = Math.max(2,Math.min(98,(h-7)/14*100));
   const bar = `<div class="mini"><i style="left:${pos.toFixed(0)}%"></i></div><div class="mini-l"><span>07:00</span><span>now</span><span>21:00</span></div>`;
-  if(!q) return `<div class="hud"><div class="ph"><h3>Next up on Instagram</h3><span class="cp">EMPTY</span></div><div class="thumb"><b>NOTHING<br>QUEUED</b></div><div class="nx"><b>Plan the week</b><span></span></div>${bar}<div class="acts"><button class="btn sm pri" data-go="content">Open Instagram</button></div></div>`;
+  const n=up[0];
+  if(n){
+    const vid=/video|reel/.test(n.kind);
+    const thumb = vid ? `<div class="thumb" style="padding:0;overflow:hidden"><video src="${esc(n.media_url)}" muted playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover"></video></div>`
+                      : `<div class="thumb" style="padding:0;background:#000 url('${esc(n.media_url)}') center/cover no-repeat"></div>`;
+    const chipTxt = failed ? failed+' FAILED' : n.status==='draft' ? 'NEEDS APPROVAL' : n.status==='posting' ? 'POSTING' : 'SCHEDULED';
+    const when = new Date(n.run_at).toLocaleString([], {weekday:'short',hour:'numeric',minute:'2-digit'});
+    return `<div class="hud"><div class="ph"><h3>Next up on Instagram</h3><span class="cp ${(failed||n.status==='draft')?'red':'w'}">${chipTxt}</span></div>
+      ${thumb}
+      <div class="nx"><b>${esc(KIND_LABEL[n.kind]||'Post')} · ${esc(when)}</b><span>${sched} scheduled${drafts?' · '+drafts+' to approve':''}</span></div>${bar}
+      <div class="acts"><button class="btn sm" data-go="content">Open Instagram</button></div></div>`;
+  }
+  const items = Q.filter(q=>['reel','post','story'].includes(q.kind) && (q.status==='draft'||q.status==='approved'));
+  const q = items.find(x=>x.status==='approved') || items[0];
+  if(!q) return `<div class="hud"><div class="ph"><h3>Next up on Instagram</h3><span class="cp ${failed?'red':''}">${failed?failed+' FAILED':'EMPTY'}</span></div><div class="thumb"><b>NOTHING<br>SCHEDULED</b></div><div class="nx"><b>Plan the week</b><span></span></div>${bar}<div class="acts"><button class="btn sm pri" data-go="content">Open Instagram</button></div></div>`;
   const m=q.meta||{}; const hook=(m.hook||q.title||q.body||'').toString().replace(/[.!?]+$/,'');
   const thumbText = esc(hook.length>34?hook.slice(0,32)+'…':hook).replace(/(\S+\s\S+\s)/,'$1<br>');
   return `<div class="hud"><div class="ph"><h3>Next up on Instagram</h3><span class="cp ${q.status==='draft'?'red':'w'}">${q.status==='draft'?'NEEDS APPROVAL':'APPROVED'}</span></div>
@@ -718,11 +733,26 @@ function renderLeads(filter){
 
 function renderContent(){
   const items = Q.filter(q=>['reel','post','story'].includes(q.kind)&&q.status!=='rejected');
+  const nowMs=Date.now();
+  const failed=SCHED.filter(r=>r.status==='failed'), drafts=SCHED.filter(r=>r.status==='draft'), sched=SCHED.filter(r=>r.status==='approved'), posted=SCHED.filter(r=>r.status==='posted');
+  const coming=SCHED.filter(r=>['draft','approved','posting','failed'].includes(r.status)).sort((a,b)=>a.run_at<b.run_at?-1:1).slice(0,8);
+  const chip=r=>({draft:'Needs approval',approved:'Scheduled',posting:'Posting...',failed:'Failed'})[r.status];
+  const col=r=>({draft:'var(--red)',approved:'#3FB950',posting:'#D29922',failed:'var(--red)'})[r.status];
+  const row=r=>{
+    const vid=/video|reel/.test(r.kind);
+    const m = vid ? `<video src="${esc(r.media_url)}" muted playsinline preload="metadata" style="width:42px;height:74px;object-fit:cover;border-radius:7px;background:#000"></video>` : `<img src="${esc(r.media_url)}" alt="" style="width:42px;height:${r.kind==='photo'?52:74}px;object-fit:cover;border-radius:7px;background:#000">`;
+    return `<button class="item" data-openplan="1" style="align-items:center">${m}<div style="min-width:0;flex:1;text-align:left"><div class="t">${esc(KIND_LABEL[r.kind])}${r.kind==='reel'?' (animated)':''} <span style="font-size:11px;font-weight:600;color:${col(r)}">${chip(r)}</span></div><div class="s">${esc(new Date(r.run_at).toLocaleString([], {weekday:'short',hour:'numeric',minute:'2-digit'}))} · ${esc((r.label||'').slice(0,46))}</div>${r.error?`<div class="s" style="color:var(--red)">${esc(r.error.slice(0,90))}</div>`:''}</div><span class="r">›</span></button>`;
+  };
   $('#s-content').innerHTML = `
     <div class="lead-h"><h2>Instagram</h2></div>
-    <div class="row" style="margin:0 0 14px"><button class="btn pri" id="planWeekBtn">Plan my week</button><button class="btn" id="ideaBtn">One idea</button></div>
-    <div class="help">Everything is drafted for you to edit and approve. Posting is a tap away: copy the caption, film from the shot list, post it yourself.</div>
-    ${items.length? '<div class="grid2">'+items.map(qCard).join('')+'</div>' : '<div class="empty">No content yet.<br>Tap <b>Plan my week</b> and HQ drafts a full week of reels, posts and stories.</div>'}`;
+    <div class="row" style="margin:0 0 12px"><button class="btn pri" id="igOpenPlan">Weekly plan</button><button class="btn" id="igOpenPost">Post now</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px"><span class="pill">${drafts.length} to approve</span><span class="pill" style="color:#3FB950;border-color:rgba(63,185,80,.4)">${sched.length} scheduled</span><span class="pill" style="color:var(--dim);border-color:var(--line2)">${posted.length} posted</span>${failed.length?`<span class="pill">${failed.length} failed</span>`:''}</div>
+    ${coming.length ? `<div class="help" style="margin-bottom:8px">Coming up. Tap any to review, edit or approve.</div><div class="grid2" style="margin-bottom:22px">${coming.map(row).join('')}</div>`
+      : `<div class="empty" style="margin-bottom:22px">Nothing scheduled yet.<br>Tap <b>Weekly plan</b> and HQ writes and designs the next 7 days: a post or reel a day, a story repost and two call-to-action stories. You approve once, then it posts by itself.</div>`}
+    <div class="lead-h" style="margin-top:8px"><h3 style="font-size:18px">Ideas for you to film</h3></div>
+    <div class="row" style="margin:0 0 12px"><button class="btn" id="planWeekBtn">Write ideas for the week</button><button class="btn" id="ideaBtn">One idea</button></div>
+    <div class="help">Drafted for you to edit and approve. These are shot lists and captions for content you film yourself, not auto-posted.</div>
+    ${items.length? '<div class="grid2">'+items.map(qCard).join('')+'</div>' : '<div class="empty">No ideas yet.<br>Tap <b>Write ideas for the week</b> and HQ drafts reels, posts and stories to film.</div>'}`;
 }
 
 function renderClients(){
@@ -1735,6 +1765,8 @@ document.addEventListener('click', async e=>{
   if(t.id==='addClientBtn') return addClientSheet();
   if(t.id==='dmFirst') return working(t,'Drafting...',async()=>{ const n=await draftDMs('first'); if(n){ toast(n+' drafted. Approve them on Today.'); go('today'); } });
   if(t.id==='dmFollow') return working(t,'Drafting...',async()=>{ const n=await draftDMs('follow'); if(n){ toast(n+' drafted. Approve them on Today.'); go('today'); } });
+  if(t.id==='igOpenPlan' || t.closest('[data-openplan]')) return planSheet();
+  if(t.id==='igOpenPost') return igPostSheet();
   if(t.id==='planWeekBtn') return working(t,'Planning...',async()=>{ const n=await planWeek(); toast(n+' ideas drafted.'); renderContent(); setBadge(); });
   if(t.id==='ideaBtn'){ sheet('One reel idea',`<div class="fld"><label>What is it about?</label><input class="inp" id="ideaTopic" placeholder="e.g. why most people stall on bench"></div><button class="btn pri" id="ideaGo" style="width:100%">Draft it</button>`,b=>{
       $('#ideaGo',b).onclick=()=>working($('#ideaGo',b),'Drafting...',async()=>{ const tp=$('#ideaTopic',b).value.trim(); if(!tp){ toast('Add a topic'); return; } await oneIdea(tp); closeSheet(); renderContent(); setBadge(); toast('Drafted'); }); }); return; }
@@ -1809,10 +1841,12 @@ async function start(){
   setupVoice(); go('today'); startLive();
   const nm = ownerFirstName(); if($('#meName')){ $('#meName').textContent=nm; $('#meAv').textContent=nm.charAt(0).toUpperCase(); $('#meRole').textContent = IS_OWNER?'Owner':'Team'; }
 }
+async function loadSched(){ try{ return await planRows(); }catch(e){ return []; } }
 async function loadAll(){
   const r = await Promise.all([db.list('queue'),db.list('leads'),db.list('clients'),db.list('staff'),db.list('messages')]);
   Q=r[0]; L=r[1]; C=r[2]; STAFF=r[3]; MSGS=r[4];
   S = (await db.kvGet(ME.id,'hq:settings')) || {};
+  SCHED = await loadSched();
 
   // the owner's own access is implicitly "everything" — not stored as rows
   const accessRows = await db.listByEq('team_access', 'user_id', ME.id);
@@ -1852,9 +1886,9 @@ async function liveTick(){
     }
     if(Date.now()-liveSlow > 20000){
       liveSlow = Date.now();
-      const [q2,l2,c2] = await Promise.all([db.list('queue'),db.list('leads'),db.list('clients')]);
+      const [q2,l2,c2,s2] = await Promise.all([db.list('queue'),db.list('leads'),db.list('clients'),loadSched()]);
       const sig = x => JSON.stringify(x.map(r=>[r.id||r.user_id, r.status||r.stage, (r.body||'').length]));
-      if(sig(q2)!==sig(Q) || sig(l2)!==sig(L) || sig(c2)!==sig(C)){ Q=q2; L=l2; C=c2; changed = true; }
+      if(sig(q2)!==sig(Q) || sig(l2)!==sig(L) || sig(c2)!==sig(C) || sig(s2)!==sig(SCHED)){ Q=q2; L=l2; C=c2; SCHED=s2; changed = true; }
     }
     if(changed){
       setBadge();
