@@ -1952,7 +1952,7 @@ async function pushStatus(){
   if(!('serviceWorker' in navigator) || !('PushManager' in window)) return 'unsupported';
   if(Notification.permission === 'denied') return 'denied';
   try{
-    const reg = await navigator.serviceWorker.ready;
+    const reg = await Promise.race([navigator.serviceWorker.ready, new Promise((_,rej)=>setTimeout(()=>rej(new Error('sw')),2500))]);
     const sub = await reg.pushManager.getSubscription();
     return (sub && sameKey(sub, VAPID_PUBLIC_KEY)) ? 'on' : 'off';
   }catch(e){ return 'off'; }
