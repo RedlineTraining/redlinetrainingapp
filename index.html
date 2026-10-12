@@ -4572,9 +4572,15 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
       'needs-install':['One step first','On iPhone, tap Share, then Add to Home Screen, then open Redline from your home screen and come back here.','']
     };
     document.getElementById('pushTestRow').classList.toggle('hidden', st!=='on');
-    if(st==='on' && sb && currentUser){ try{ const reg=await navigator.serviceWorker.ready; const ps=await reg.pushManager.getSubscription(); if(ps){ const jj=ps.toJSON(); const { error } = await sb.from('push_subs').upsert([{ user_id:currentUser.id, endpoint:jj.endpoint, keys:jj.keys }], { onConflict:'endpoint' }); if(error) map.on[1]='This device is not saved on the server: '+(error.message||error); } }catch(e){} }
+    if(st==='on' && sb && currentUser){ try{ const reg=await navigator.serviceWorker.ready; const ps=await reg.pushManager.getSubscription(); if(ps){ const jj=ps.toJSON(); const { error } = await saveSubRow(jj); if(error) map.on[1]='This device is not saved on the server: '+(error.message||error); } }catch(e){} }
     const m = map[st]; lbl.textContent=m[0]; sub.textContent=m[1]; btn.textContent=m[2]; btn.style.display = m[2]?'':'none'; btn.dataset.state=st;
     if(!vapidKey() && st==='off'){ sub.textContent='Notifications are not switched on for this app yet.'; btn.style.display='none'; }
+  }
+  // tag this device as the client app, so owner alerts go to HQ and are not doubled here
+  async function saveSubRow(j){
+    let r = await sb.from('push_subs').upsert([{ user_id:currentUser.id, endpoint:j.endpoint, keys:j.keys, app:'client' }], { onConflict:'endpoint' });
+    if(r.error && /app/.test(r.error.message||'')) r = await sb.from('push_subs').upsert([{ user_id:currentUser.id, endpoint:j.endpoint, keys:j.keys }], { onConflict:'endpoint' });
+    return r;
   }
   async function enableClientPush(){
     if(!sb || !currentUser){ showToast('Sign in first'); return; }
@@ -4586,7 +4592,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
     if(sub && !sameKeyC(sub)){ try{ await sub.unsubscribe(); }catch(e){} sub = null; }
     if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64ToU8(vapidKey()) });
     const j = sub.toJSON();
-    const { error } = await sb.from('push_subs').upsert([{ user_id:currentUser.id, endpoint:j.endpoint, keys:j.keys }], { onConflict:'endpoint' });
+    const { error } = await saveSubRow(j);
     if(error){ console.error(error); document.getElementById('pushStatusSub').textContent = 'Could not save this device: '+(error.message||error); showToast('Could not save this device'); return; }
     await saveNotifPrefs(); showToast('Notifications are on');
   }

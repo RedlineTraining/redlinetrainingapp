@@ -1,7 +1,7 @@
 // Redline service worker
 // Caches the app shell so it opens instantly and works offline.
 // Bump CACHE_VERSION whenever you change index.html so users get the update.
-const CACHE_VERSION = 'redline-v34';
+const CACHE_VERSION = 'redline-v35';
 
 const APP_SHELL = [
   './',
