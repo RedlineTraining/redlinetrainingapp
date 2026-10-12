@@ -2011,6 +2011,7 @@
     document.getElementById('onboardingView').classList.add('hidden');
     document.getElementById('mainApp').classList.add('hidden');
     renderAuthMode();
+    try{ if(window.__rlInstallGate) window.__rlInstallGate(); }catch(e){}
   }
   function renderAuthMode(){
     const isSignup = authMode === 'signup';
@@ -6943,9 +6944,37 @@ const RLEAN = (() => {
     const al = $x('ngAllow'); if(al) al.onclick = async ()=>{ try{ await enableClientPush(); const s2 = await pushState(); if(s2==='on'){ showToast('Notifications are on'); al.textContent='Done. Now check step 2'; al.disabled=true; } }catch(e){ showToast('Could not turn them on'); } };
     $x('ngDone').onclick = ()=>closePlus('notifGuide');
   }
+
+  // ---------- Install first: shown on the website before sign-in, so nobody signs in twice ----------
+  const notSafariIOS = isIOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(navigator.userAgent);
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  function gateSteps(){
+    if(notSafariIOS) return `<div class="rlx-step"><div class="no">1</div><div><b>Open this page in Safari</b><div class="rlx-sub">iPhone can only add apps to the Home Screen from Safari. Copy the web address, open Safari and paste it in.</div></div></div>
+      <div class="rlx-step"><div class="no">2</div><div><b>Tap Share, then Add to Home Screen</b><div class="rlx-sub">Share is the square with an arrow. Tap Add.</div></div></div>`;
+    if(isIOS) return `<div class="rlx-step"><div class="no">1</div><div><b>Tap the Share button</b><div class="rlx-sub">The square with an arrow, at the bottom of Safari.</div></div></div>
+      <div class="rlx-step"><div class="no">2</div><div><b>Choose Add to Home Screen, then Add</b><div class="rlx-sub">Scroll down in the menu if you can't see it.</div></div></div>`;
+    return `<div class="rlx-step"><div class="no">1</div><div><b>${deferredInstall?'Tap Install below':'Open the browser menu and tap Install app'}</b><div class="rlx-sub">Some phones call it Add to Home Screen.</div></div></div>`;
+  }
+  function showInstallGate(){
+    let skipped = false; try{ skipped = sessionStorage.getItem('rl-gate-skip')==='1'; }catch(e){}
+    if(isStandalone || FORCE_LOCAL || skipped || !(isIOS || isAndroid)) { const g=$x('installGate'); if(g) g.remove(); return; }
+    let g = $x('installGate');
+    if(!g){ document.body.insertAdjacentHTML('beforeend','<div id="installGate" style="position:fixed;inset:0;z-index:99999;background:var(--bg,#0b0b0c);overflow:auto;padding:max(28px,env(safe-area-inset-top)) 22px 28px;"><div class="rlx-body" style="max-width:420px;margin:0 auto;" id="installGateBody"></div></div>'); g=$x('installGate'); }
+    $x('installGateBody').innerHTML = `<h2 class="serif" style="margin:6px 0 6px;font-size:26px;">Add Redline to your home screen first</h2>
+      <div class="rlx-sub" style="margin-bottom:14px;">Takes 20 seconds, and you only have to sign in once. It opens like a real app, and it's the only way your phone can send coach replies and check-in reminders.</div>
+      ${gateSteps()}
+      <div class="rlx-step"><div class="no">${notSafariIOS?'3':(isIOS?'3':'2')}</div><div><b>Open Redline from your home screen</b><div class="rlx-sub">Then sign in or create your account there.</div></div></div>
+      <div class="rlx-row" style="margin-top:18px;">${deferredInstall?'<button class="rlx-btn pri" id="gateInstall" style="flex:1;">Install</button>':''}</div>
+      <div class="rlx-row"><button class="rlx-btn" id="gateSkip" style="flex:1;">Continue in the browser instead</button></div>`;
+    const gi=$x('gateInstall'); if(gi) gi.onclick=async()=>{ try{ deferredInstall.prompt(); await deferredInstall.userChoice; }catch(e){} deferredInstall=null; showInstallGate(); };
+    $x('gateSkip').onclick=()=>{ try{ sessionStorage.setItem('rl-gate-skip','1'); }catch(e){} $x('installGate').remove(); };
+  }
+  window.__rlInstallGate = showInstallGate;
+  window.addEventListener('beforeinstallprompt', ()=>{ if($x('installGate')) setTimeout(showInstallGate,0); });
   function initInstallUI(){
     renderInstallBanner();
-    if(isStandalone && !FORCE_LOCAL) setTimeout(()=>openNotifGuide(false), 2500);
+    // the notification pop-up waits until the app is on the home screen AND they are signed in
+    if(isStandalone && !FORCE_LOCAL){ let tries=0; const iv=setInterval(()=>{ tries++; const main=$x('mainApp'); if(currentUser && main && !main.classList.contains('hidden')){ clearInterval(iv); setTimeout(()=>openNotifGuide(false), 2500); } else if(tries>800) clearInterval(iv); }, 1500); }
     const row = $x('pushStatusSub'); if(row && !$x('notifGuideLink')){ row.insertAdjacentHTML('afterend','<button class="log-manually-link" id="notifGuideLink" style="margin-top:6px;">Notification setup guide</button>'); $x('notifGuideLink').addEventListener('click', ()=>{ $x('settingsModal').classList.add('hidden'); openNotifGuide(true); }); }
   }
 
