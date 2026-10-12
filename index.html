@@ -634,6 +634,7 @@
     background:linear-gradient(to top, var(--bg) 62%, transparent);
     z-index:5;
   }
+  .await-mark{width:64px;height:64px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;background:var(--red);box-shadow:0 10px 30px rgba(232,48,42,.35);}
   .t-coachnote{
     display:flex; gap:10px; padding:13px 14px; background:var(--bg-elev);
     border:1px solid var(--hairline); border-left:2px solid var(--red); border-radius:10px;
@@ -2298,6 +2299,13 @@
     if(!el) return;
     const info = nextSessionInfo();
 
+    if(!info && trainingProfile && trainingProfile.awaitingCoach){
+      el.innerHTML = `
+        <div class="hc-head"><span class="hc-label">Training</span></div>
+        <h2 class="sc-title">Your coach is on it</h2>
+        <div class="sc-sub">Thanks for your answers. Coach Nash will be back to you shortly with your training program.</div>`;
+      return;
+    }
     if(!info){
       el.innerHTML = `
         <div class="hc-head"><span class="hc-label">Training</span></div>
@@ -4886,7 +4894,13 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
         if(data && data.value && data.value !== memStore['coachPlan']){
           memStore['coachPlan'] = data.value; lsSet('coachPlan', data.value);
           const hadCoach = !!(pendingPlan && pendingPlan._fromCoach);
-          if(await checkCoachPlan() && !hadCoach){
+          const cpr = await checkCoachPlan();
+          if(cpr === 'initial'){
+            showToast('Your training program is ready. Open Train to see it.');
+            const ts = document.getElementById('trainScreen');
+            if(ts && !ts.classList.contains('hidden')) renderTrain();
+            try{ render(); }catch(e){}
+          } else if(cpr && !hadCoach){
             showToast('Your coach updated your training. Open Train to review.');
             try{ await saveTraining(); }catch(e){}
             const ts = document.getElementById('trainScreen');
@@ -4913,7 +4927,12 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
       try{ const r=await store.get('targets'); if(r&&r.value) targets=JSON.parse(r.value); }catch(e){}
       await loadDay(currentDate);
       const hadCoach = !!(pendingPlan && pendingPlan._fromCoach);
-      if(await checkCoachPlan() && !hadCoach){
+      const cpr = await checkCoachPlan();
+      if(cpr === 'initial'){
+        showToast('Your training program is ready. Open Train to see it.');
+        const ts = document.getElementById('trainScreen');
+        if(mainInited && ts && !ts.classList.contains('hidden')) renderTrain();
+      } else if(cpr && !hadCoach){
         showToast('Your coach updated your training. Open Train to review.');
         try{ await saveTraining(); }catch(e){}
         const ts = document.getElementById('trainScreen');
@@ -4978,6 +4997,17 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
       const cp = JSON.parse(r.value);
       if(!cp || !cp.days || !cp.pushedAt) return false;
       if(cp.pushedAt <= (trainingProfile.coachSeenAt || 0)) return false;           // already decided
+      // The first program: the coach approved the draft, so it simply becomes their plan.
+      if(cp.initial && !trainingPlan && trainingProfile.awaitingCoach){
+        if(cp.forProfileAt && cp.forProfileAt !== trainingProfile.createdAt) return false;   // answers were redone since
+        const live = Object.assign({}, cp); ['initial','pushedAt','from','forProfileAt'].forEach(k=>delete live[k]);
+        live.weekNumber = Number(live.weekNumber) || 1;
+        trainingPlan = live; pendingPlan = null;
+        trainingProfile.coachSeenAt = cp.pushedAt; trainingProfile.awaitingCoach = false; trainingProfile.draftReady = false;
+        try{ await store.set('planDraft', 'null'); }catch(e){}
+        try{ await saveTraining(); }catch(e){}
+        return 'initial';
+      }
       if(trainingPlan && Number(cp.weekNumber) < Number(trainingPlan.weekNumber)) return false;   // older week, ignore
       if(pendingPlan && pendingPlan._fromCoach && pendingPlan.pushedAt >= cp.pushedAt) return false; // already showing it
       pendingPlan = Object.assign({}, cp, { _revision:true, _fromCoach:true });
@@ -5004,7 +5034,10 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
     if(!body) return;
     if(!trainingProfile){ renderTrainIntro(body); return; }
     if(pendingPlan){ renderPlanReview(body); return; }
-    if(!trainingPlan){ renderGenerating(body, false); return; }
+    if(!trainingPlan){
+      if(trainingProfile.awaitingCoach && trainingProfile.draftReady){ renderAwaitingCoach(body); return; }
+      renderGenerating(body, false); return;
+    }
     renderWeek(body);
   }
 
@@ -5169,7 +5202,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
       ${inner}
       <div class="ob-actions" style="margin-top:22px;">
         ${tqStep>0?'<button class="ob-btn ob-btn-ghost" id="tqBack">Back</button>':''}
-        <button class="ob-btn ob-btn-primary" id="tqNext">${tqStep===TQ_STEPS.length-1?'Build my plan':'Continue'}</button>
+        <button class="ob-btn ob-btn-primary" id="tqNext">${tqStep===TQ_STEPS.length-1?((sb&&currentUser)?'Send to my coach':'Build my plan'):'Continue'}</button>
       </div>
       ${optional?'<button class="edit-toggle-link" id="tqSkip" style="margin-top:12px; width:100%;">Skip this</button>':''}`;
 
@@ -5245,8 +5278,37 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
       limits: tqData.limits||'', createdAt: new Date().toISOString()
     };
     trainingPlan = null; trainingLogs = {}; trainingHistory = []; pendingPlan = null;
+    // Signed-in clients: the first program is drafted but held for the coach to approve.
+    try{
+      if(sb && currentUser){
+        const { data } = await sb.from('clients').select('level,status').eq('user_id', currentUser.id).maybeSingle();
+        myLevel = data ? data.level : '';
+        trainingProfile.awaitingCoach = true;      // every signed-in client's first program waits for the coach
+      }
+    }catch(e){}
+    try{ await store.set('planDraft', 'null'); }catch(e){}
     await saveTraining();
     renderGenerating(document.getElementById('trainBody'), false);
+  }
+
+  function renderAwaitingCoach(body){
+    const p = trainingProfile || {};
+    const gl = (TRAIN_GOALS.find(x=>x[0]===p.goal)||[])[1] || '';
+    const bits = [gl, p.days?p.days+' days a week':'', p.sessionLength?'about '+p.sessionLength+' min':''].filter(Boolean);
+    body.innerHTML = `
+      <div style="text-align:center; padding:54px 22px 10px;">
+        <div class="await-mark">✓</div>
+        <div class="serif" style="font-size:24px; font-weight:500; margin:18px 0 10px;">Thanks for that info</div>
+        <div style="font-size:14px; color:var(--text-dim); line-height:1.65; margin:0 auto 18px; max-width:300px;">
+          Your coach Nash has your answers and will be back to you shortly with your training program.
+          You'll get a notification the moment it's ready.
+        </div>
+        ${bits.length?`<div style="font-size:12px; color:var(--text-dim); border:1px solid var(--hairline); border-radius:12px; padding:11px 14px; display:inline-block;">${bits.map(escapeHtml).join(' · ')}</div>`:''}
+        <div style="margin-top:26px;"><button class="edit-toggle-link" id="awaitRedo">Change my answers</button></div>
+      </div>`;
+    document.getElementById('awaitRedo').addEventListener('click', async ()=>{
+      if(await askConfirm('Change your answers?', 'This starts the questions again and replaces what your coach has.', 'Start again')) resetTraining();
+    });
   }
 
   // ---------- plan generation ----------
@@ -5254,7 +5316,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
     body.innerHTML = `
       <div style="text-align:center; padding:60px 20px;">
         <div class="spinner" style="margin:0 auto 16px;"></div>
-        <div style="font-size:14px; font-weight:600; margin-bottom:6px;">${isNextWeek?'Building next week':'Building your plan'}</div>
+        <div style="font-size:14px; font-weight:600; margin-bottom:6px;">${isNextWeek?'Building next week':((trainingProfile&&trainingProfile.awaitingCoach)?'Sending to your coach':'Building your plan')}</div>
         <div style="font-size:12px; color:var(--text-dim);">${isNextWeek?'Adjusting around what you lifted':'This takes a few seconds'}</div>
       </div>`;
     generatePlan(isNextWeek);
@@ -5427,6 +5489,10 @@ Write week 1 of their training. Start conservatively enough that there is room t
 
       if(isNextWeek){
         pendingPlan = plan;          // wait for approval
+      } else if(trainingProfile && trainingProfile.awaitingCoach){
+        // held for the coach: the client never sees this draft
+        await store.set('planDraft', JSON.stringify({ plan, createdAt: Date.now(), profileAt: trainingProfile.createdAt, status:'awaiting' }));
+        trainingProfile.draftReady = true;
       } else {
         trainingPlan = plan;
       }
@@ -5974,6 +6040,7 @@ In coachNote, tell them in 2-3 sentences what you changed and why. Same JSON for
   // reset training from settings
   async function resetTraining(){
     trainingProfile=null; trainingPlan=null; trainingLogs={}; pendingPlan=null; trainingHistory=[];
+    try{ await store.set('planDraft', 'null'); }catch(e){}
     await saveTraining();
     renderTrain();
   }
