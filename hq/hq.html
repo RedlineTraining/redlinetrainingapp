@@ -707,6 +707,7 @@ function renderToday(){
   const attn = [];
   flagged.forEach(c=>{ if(c.client_id){ const cl=clientOf(c.client_id); attn.push({id:c.client_id,name:cl?(cl.display_name||cl.email):c.name,note:'Message held: '+String(c.last.body||'').slice(0,46),chip:'HELD FOR YOU',cls:'red'}); } });
   if(canHealth()){
+    pendingPlans().forEach(x=>{ attn.unshift({id:x.c.user_id,name:x.c.display_name||x.c.email||'Client',note:'Training program drafted, waiting for you to approve',chip:'APPROVE PLAN',cls:'red'}); });
     pendingCheckins().forEach(x=>{ if(!attn.find(a=>a.id===x.c.user_id)) attn.push({id:x.c.user_id,name:x.c.display_name||x.c.email||'Client',note:'Check-in waiting: '+(x.ck.win||x.ck.struggle||x.ck.question||'week ending '+x.ck.week).slice(0,40),chip:'CHECK-IN',cls:'red'}); });
     C.filter(c=>c.status==='active').map(c=>({c,h:healthOf(c)})).filter(x=>x.h.score!=null&&!x.h.isNew&&x.h.score<40).sort((a,b)=>a.h.score-b.h.score).forEach(x=>{ if(!attn.find(a=>a.id===x.c.user_id)) attn.push({id:x.c.user_id,name:x.c.display_name||x.c.email||'Client',note:x.h.reasons[0]+' · score '+x.h.score,chip:'AT RISK',cls:'red'}); });
   }
@@ -780,10 +781,12 @@ function renderContent(){
 function renderClients(){
   const el=$('#s-clients');
   const pend=canHealth()?pendingCheckins():[];
+  const pplans=canHealth()?pendingPlans():[];
   const lvl=c=>({app:'App member',pro:'Pro membership',coaching:'1:1 coaching'})[c.level]||c.level;
   const order=C.slice().sort((a,b)=>{ const ha=healthOf(a), hb=healthOf(b); return (ha.score==null?101:ha.isNew?100:ha.score)-(hb.score==null?101:hb.isNew?100:hb.score); });
   el.innerHTML = `
     <div class="lead-h"><h2>Clients</h2><button class="btn pri sm" id="addClientBtn">+ Add client</button></div>
+    ${pplans.length?`<div class="hud" style="margin-bottom:14px"><div class="ph"><h3>Training plans to approve (${pplans.length})</h3><span class="cp red">NEW</span></div>${pplans.slice(0,6).map(x=>`<button class="li" data-client="${x.c.user_id}"><div class="ico">◆</div><div style="min-width:0;flex:1;text-align:left"><div class="t">${esc(x.c.display_name||x.c.email||'Client')}</div><div class="s">Drafted ${ago(new Date(x.dr.createdAt||Date.now()).toISOString())}. Review, edit and send.</div></div><span class="cp w">APPROVE</span></button>`).join('')}</div>`:''}
     ${pend.length?`<div class="hud" style="margin-bottom:14px"><div class="ph"><h3>Check-ins to review (${pend.length})</h3><span class="cp red">NEW</span></div>${pend.slice(0,6).map(x=>`<button class="li" data-ckrev="${x.c.user_id}"><div class="ico">✓</div><div style="min-width:0;flex:1;text-align:left"><div class="t">${esc(x.c.display_name||x.c.email||'Client')}</div><div class="s">${esc((x.ck.win||x.ck.struggle||x.ck.question||'Week ending '+x.ck.week).slice(0,70))}</div></div><span class="cp w">REVIEW</span></button>`).join('')}</div>`:''}
     ${C.length? '<div class="grid2">'+order.map(c=>{ const h=healthOf(c); return `<button class="item" data-client="${c.user_id}"><div><div class="t">${esc(c.display_name||c.email||'Client')} ${canHealth()?healthChip(h):''}</div><div class="s">${esc(lvl(c))} · ${esc(c.status)}</div></div><span class="r">›</span></button>`; }).join('')+'</div>'
       : '<div class="empty">No clients yet.<br>When someone signs up to the app, tap <b>Add client</b> to link them. You can then set their level, see their week, and push edited programming straight into their app.</div>'}`;
@@ -1734,7 +1737,7 @@ async function reportSheet(){
 // ---------- Client intelligence: health score, check-in review, macro proposals, intake, photos, monthly report ----------
 let INTEL={}, INTEL_AT=0, SNIPS=[], REVIEWED={};
 const canHealth=()=>DEMO||IS_OWNER||(MYPERMS&&MYPERMS.see_health);
-const HEALTH_FIXED=['trainingLogs','targets','intake','coachPlan','trainingPlan','profile','measurements','photos'];
+const HEALTH_FIXED=['trainingLogs','targets','intake','coachPlan','trainingPlan','planDraft','profile','measurements','photos'];
 const sundayKeys=n=>{ const out=[]; const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-d.getDay()); for(let i=0;i<n;i++){ const x=new Date(d); x.setDate(d.getDate()-7*i); out.push('checkin:'+dayKey(x)); } return out; };
 const entryKeys=n=>{ const out=[]; for(let i=0;i<n;i++) out.push('entries:'+dayKey(new Date(Date.now()-i*864e5))); return out; };
 const jparse=v=>{ if(v==null) return null; if(typeof v!=='string') return v; try{ return JSON.parse(v); }catch(e){ return null; } };
@@ -1781,6 +1784,14 @@ function healthOf(c, d){
 }
 const healthChip=h=>h.score==null?'':`<span class="cp ${h.cls==='g'?'':h.cls}" style="${h.cls==='g'?'color:#3FB950;border-color:rgba(63,185,80,.4)':h.cls==='a'?'color:#D29922;border-color:rgba(210,153,34,.4)':''}">${h.label.toUpperCase()} ${h.score}</span>`;
 const reviewKey=(uid,wk)=>uid+':'+wk;
+// First programs the app has drafted but is holding for the coach to approve.
+function pendingPlans(){
+  const out=[]; C.forEach(c=>{ if(c.status==='ended') return; const d=INTEL[c.user_id]; if(!d) return;
+    const dr=d.planDraft; if(!dr||!dr.plan||d.trainingPlan) return;
+    const cp=d.coachPlan; if(cp&&cp.initial&&cp.forProfileAt===dr.profileAt) return;   // already approved, client has not opened the app yet
+    out.push({c,dr}); });
+  return out.sort((a,b)=>(a.dr.createdAt||0)-(b.dr.createdAt||0));
+}
 function pendingCheckins(){
   const out=[]; C.forEach(c=>{ const ck=latestCheckin(INTEL[c.user_id]); if(ck && ck.week && !REVIEWED[reviewKey(c.user_id,ck.week)]) out.push({c,ck}); });
   return out.sort((a,b)=>String(b.ck.submittedAt).localeCompare(String(a.ck.submittedAt)));
@@ -2158,15 +2169,22 @@ async function addClientSheet(){
 }
 
 async function clientSheet(c){
-  const [plan, logs, targets, entries] = await Promise.all([
-    db.kvGet(c.user_id,'trainingPlan'), db.kvGet(c.user_id,'trainingLogs'), db.kvGet(c.user_id,'targets'), db.kvGet(c.user_id,'entries:'+dayKey())
+  const [plan, logs, targets, entries, draft, tprof, cplan] = await Promise.all([
+    db.kvGet(c.user_id,'trainingPlan'), db.kvGet(c.user_id,'trainingLogs'), db.kvGet(c.user_id,'targets'), db.kvGet(c.user_id,'entries:'+dayKey()),
+    db.kvGet(c.user_id,'planDraft'), db.kvGet(c.user_id,'trainingProfile'), db.kvGet(c.user_id,'coachPlan')
   ]);
+  const isDraft = !plan && !!(draft && draft.plan) && !(cplan && cplan.initial && cplan.forProfileAt===draft.profileAt);
+  const TP_LBL={ hypertrophy:'Build muscle', strength:'Get stronger', hybrid:'Hybrid / athletic', fatloss:'Lose fat', general:'General fitness', beginner:'Beginner', intermediate:'Intermediate', advanced:'Advanced', full_gym:'Full gym', home_gym:'Home gym', minimal:'Minimal kit', bodyweight:'Bodyweight only', barbell:'Barbell-focused', machines:'Machines and cables', mixed:'Mix of everything', functional:'Functional / athletic', none:'None', light:'A little', moderate:'Moderate', high:'A lot', great:'Recovering well', ok:'Average', poor:'Struggling to recover' };
+  const tl=v=>TP_LBL[v]||v||'';
+  const answersHTML = t => !t ? '' : (()=>{ const r=(l,v)=>v?`<div style="margin:6px 0"><span style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em">${l}</span><div style="font-size:14px">${esc(v)}</div></div>`:'';
+    return `<div class="sec">What they told the app</div>`+r('Goal',tl(t.goal))+r('Experience',tl(t.experience))+r('Days a week',t.days)+r('Which days',(t.scheduleDays||[]).join(', '))+r('Session length',t.sessionLength?t.sessionLength+' min':'')+r('Equipment',tl(t.equipment)+(t.equipNotes?' ('+t.equipNotes+')':''))+r('Style',tl(t.style))+r('Wants to prioritise',(t.priorities||[]).join(', '))+r('Current lifts',t.lifts)+r('Conditioning',tl(t.conditioning))+r('Outside the gym',t.outside)+r('Recovery',tl(t.recovery))+r('Event or target',t.event)+r('Limits and dislikes',t.limits); })();
   const done = plan ? (plan.days||[]).filter((_,i)=>((logs||{})['w'+plan.weekNumber+':'+i]||{}).done).length : 0;
   const eaten = (entries||[]).reduce((n,e)=>n+(Number(e.calories)||0),0), prot=(entries||[]).reduce((n,e)=>n+(Number(e.protein)||0),0);
-  let edit = plan ? JSON.parse(JSON.stringify(plan)) : null;
+  let edit = plan ? JSON.parse(JSON.stringify(plan)) : (isDraft ? JSON.parse(JSON.stringify(draft.plan)) : null);
 
   const planHTML = () => !edit ? '<div class="empty">No training plan yet. They need to build one in the app first.</div>' :
-    `<div class="fld"><label>Note they will see from you</label><textarea class="ta" id="cpNote" rows="3">${esc(edit.coachNote||'')}</textarea></div>
+    `${isDraft?`<div class="help" style="border:1px solid var(--red);border-radius:10px;padding:10px 12px;margin-bottom:12px"><b style="color:var(--red)">Draft waiting for you.</b> The client has not seen this. They are being told you will be back to them shortly. Check it, change anything, then approve and it goes live in their app.</div>${answersHTML(tprof)}<div class="sec">Their first week</div>`:''}
+     <div class="fld"><label>Note they will see from you</label><textarea class="ta" id="cpNote" rows="3">${esc(edit.coachNote||'')}</textarea></div>
      ${(edit.days||[]).map((d,di)=>`<div class="day">${esc(d.name)} <span style="color:var(--dim);font-weight:400">${esc(d.focus||'')}</span></div>
        <div class="ex-h"><span>Exercise</span><span>Sets</span><span>Reps</span><span>to</span><span></span></div>
        ${(d.exercises||[]).map((x,ei)=>`<div class="ex">
@@ -2177,9 +2195,10 @@ async function clientSheet(c){
           <button class="x" data-rm="${di}:${ei}" aria-label="Remove">✕</button></div>`).join('')}
        <button class="btn sm" data-add="${di}" style="width:100%;margin-top:4px">+ Add exercise</button>`).join('')}
      <div class="fld" style="margin-top:16px"><label>Ask the AI to change it</label><input class="inp" id="cpAsk" placeholder="e.g. swap barbell work for machines, add a finisher"><button class="btn sm" id="cpAskGo" style="width:100%;margin-top:8px">Rewrite with AI</button></div>
-     <button class="btn pri" id="cpPush" style="width:100%">Push to ${esc(c.display_name||'client')}'s app</button>`;
+     <button class="btn pri" id="cpPush" style="width:100%">${isDraft?'Approve and send to '+esc(c.display_name||'client'):'Push to '+esc(c.display_name||'client')+'\'s app'}</button>`;
 
   sheet(c.display_name||c.email||'Client', `
+    ${isDraft?`<div class="sec" style="margin-top:0">Plan waiting for your approval</div><div id="planBox">${planHTML()}</div><div class="sec">Everything else</div>`:''}
     <div class="stats"><div class="stat"><b>${plan?('W'+plan.weekNumber):'-'}</b><span>current week</span></div>
       <div class="stat"><b>${plan?(done+'/'+(plan.days||[]).length):'-'}</b><span>sessions done</span></div>
       <div class="stat"><b>${Math.round(eaten)}</b><span>kcal today${targets?(' of '+targets.calories):''}</span></div></div>
@@ -2189,7 +2208,7 @@ async function clientSheet(c){
     <div class="fld"><label>Status</label><select class="sel" id="cStatus">${['active','paused','ended'].map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
     <div class="fld"><label>Your private notes</label><textarea class="ta" id="cNotes" rows="3">${esc(c.coach_notes||'')}</textarea></div>
     <div class="row"><button class="btn" id="cSave">Save details</button><button class="btn" id="cMsg">Draft a check-in</button></div>
-    <div class="sec">Their training</div><div id="planBox">${planHTML()}</div>`, b=>{
+    ${isDraft?'':`<div class="sec">Their training</div><div id="planBox">${planHTML()}</div>`}`, b=>{
     const rebind = ()=>{
       $$('[data-f]',b).forEach(i=>i.onchange=()=>{ const x=edit.days[i.dataset.d].exercises[i.dataset.e]; x[i.dataset.f] = i.dataset.f==='name'?i.value:(Number(i.value)||0); });
       $$('[data-rm]',b).forEach(i=>i.onclick=()=>{ const [d,e]=i.dataset.rm.split(':').map(Number); edit.days[d].exercises.splice(e,1); $('#planBox',b).innerHTML=planHTML(); rebind(); });
@@ -2203,6 +2222,14 @@ async function clientSheet(c){
       });
       const push=$('#cpPush',b); if(push) push.onclick=()=>working(push,'Pushing...',async()=>{
         edit.coachNote = ($('#cpNote',b)||{}).value||edit.coachNote||'';
+        if(isDraft){
+          const out=Object.assign({},edit,{pushedAt:Date.now(),from:'coach',initial:true,forProfileAt:draft.profileAt,weekNumber:edit.weekNumber||1});
+          await db.kvSet(c.user_id,'coachPlan',out);
+          await notify(c.user_id, 'session_added', 'Your training program is ready', 'Coach Nash has put your program together. Tap to see it.', '');
+          if(INTEL[c.user_id]) INTEL[c.user_id].coachPlan=out;
+          closeSheet(); render(); setBadge(); toast('Approved and sent. They get a notification and the program appears in their Train tab.');
+          return;
+        }
         await db.kvSet(c.user_id,'coachPlan',Object.assign({},edit,{pushedAt:Date.now(),from:'coach'}));
         await notify(c.user_id, 'session_added', 'Your plan was updated', 'Coach Nash updated your training. Tap to review it.', '');
         toast('Pushed. They get a notification, and it shows in their app.');
