@@ -599,6 +599,7 @@ function qCard(q){
       + (q.kind==='dm'&&lead ? `<button class="btn" data-act="ig" data-id="${q.id}">Open Instagram</button>` : '')
       + `<button class="btn pri" data-act="done" data-id="${q.id}">${(q.kind==='dm'||q.kind==='reminder')?'Mark sent':'Mark posted'}</button>`;
   }
+  if(rich && (q.status==='draft'||q.status==='approved')) acts += `<button class="btn" data-film="${q.id}">Film this</button>`;
   return `<div class="card"><div class="card-top"><span class="tag ${q.status==='draft'?'red':''}">${KIND[q.kind]||'Note'}${q.title?' · '+esc(q.title):''}</span><span class="who">${esc(who)}</span></div>
     <textarea class="ta" rows="${rich?4:3}" data-body="${q.id}" ${q.status==='done'||q.status==='rejected'?'readonly':''}>${esc(q.body)}</textarea>${extra}
     ${acts?`<div class="row">${acts}</div>`:''}</div>`;
@@ -705,6 +706,10 @@ function renderToday(){
   // clients needing attention: held conversations first, then everyone else by level
   const attn = [];
   flagged.forEach(c=>{ if(c.client_id){ const cl=clientOf(c.client_id); attn.push({id:c.client_id,name:cl?(cl.display_name||cl.email):c.name,note:'Message held: '+String(c.last.body||'').slice(0,46),chip:'HELD FOR YOU',cls:'red'}); } });
+  if(canHealth()){
+    pendingCheckins().forEach(x=>{ if(!attn.find(a=>a.id===x.c.user_id)) attn.push({id:x.c.user_id,name:x.c.display_name||x.c.email||'Client',note:'Check-in waiting: '+(x.ck.win||x.ck.struggle||x.ck.question||'week ending '+x.ck.week).slice(0,40),chip:'CHECK-IN',cls:'red'}); });
+    C.filter(c=>c.status==='active').map(c=>({c,h:healthOf(c)})).filter(x=>x.h.score!=null&&!x.h.isNew&&x.h.score<40).sort((a,b)=>a.h.score-b.h.score).forEach(x=>{ if(!attn.find(a=>a.id===x.c.user_id)) attn.push({id:x.c.user_id,name:x.c.display_name||x.c.email||'Client',note:x.h.reasons[0]+' · score '+x.h.score,chip:'AT RISK',cls:'red'}); });
+  }
   C.forEach(cl=>{ if(!attn.find(a=>a.id===cl.user_id)) attn.push({id:cl.user_id,name:cl.display_name||cl.email||'Client',note:(({app:'App member',pro:'Pro membership',coaching:'1:1 coaching'})[cl.level]||cl.level)+' · '+cl.status,chip:String(cl.status||'').toUpperCase(),cls:'w'}); });
   const maxStage = Math.max(1,...STAGES.map(st=>L.filter(l=>l.stage===st).length));
   const feed = [];
@@ -761,7 +766,7 @@ function renderContent(){
   };
   $('#s-content').innerHTML = `
     <div class="lead-h"><h2>Instagram</h2></div>
-    <div class="row" style="margin:0 0 12px"><button class="btn pri" id="igOpenPlan">Weekly plan</button><button class="btn" id="igOpenPost">Post now</button></div>
+    <div class="row" style="margin:0 0 12px"><button class="btn pri" id="igOpenPlan">Weekly plan</button><button class="btn" id="igOpenPost">Post now</button><button class="btn" id="igOpenLib">My content</button><button class="btn" id="igOpenRep">Weekly report</button></div><div class="help" id="bestTimeNote" style="margin:-4px 0 12px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px"><span class="pill">${drafts.length} to approve</span><span class="pill" style="color:#3FB950;border-color:rgba(63,185,80,.4)">${sched.length} scheduled</span><span class="pill" style="color:var(--dim);border-color:var(--line2)">${posted.length} posted</span>${failed.length?`<span class="pill">${failed.length} failed</span>`:''}</div>
     ${coming.length ? `<div class="help" style="margin-bottom:8px">Coming up. Tap any to review, edit or approve.</div><div class="grid2" style="margin-bottom:22px">${coming.map(row).join('')}</div>`
       : `<div class="empty" style="margin-bottom:22px">Nothing scheduled yet.<br>Tap <b>Weekly plan</b> and HQ writes and designs the next 7 days: a post or reel a day, a story repost and two call-to-action stories. You approve once, then it posts by itself.</div>`}
@@ -769,13 +774,18 @@ function renderContent(){
     <div class="row" style="margin:0 0 12px"><button class="btn" id="planWeekBtn">Write ideas for the week</button><button class="btn" id="ideaBtn">One idea</button></div>
     <div class="help">Drafted for you to edit and approve. These are shot lists and captions for content you film yourself, not auto-posted.</div>
     ${items.length? '<div class="grid2">'+items.map(qCard).join('')+'</div>' : '<div class="empty">No ideas yet.<br>Tap <b>Write ideas for the week</b> and HQ drafts reels, posts and stories to film.</div>'}`;
+  bestPostTime().then(bt=>{ const el=$('#bestTimeNote'); if(!el||!bt) return; el.textContent = bt.enough ? 'Best time to post, from your own results: about '+slotLabel(bt.best.slot)+'. The weekly plan uses it automatically.' : 'Best time to post: HQ is still learning ('+bt.n+' of 10 posts measured). Until then the plan posts at 12:00.'; }).catch(()=>{});
 }
 
 function renderClients(){
   const el=$('#s-clients');
+  const pend=canHealth()?pendingCheckins():[];
+  const lvl=c=>({app:'App member',pro:'Pro membership',coaching:'1:1 coaching'})[c.level]||c.level;
+  const order=C.slice().sort((a,b)=>{ const ha=healthOf(a), hb=healthOf(b); return (ha.score==null?101:ha.isNew?100:ha.score)-(hb.score==null?101:hb.isNew?100:hb.score); });
   el.innerHTML = `
     <div class="lead-h"><h2>Clients</h2><button class="btn pri sm" id="addClientBtn">+ Add client</button></div>
-    ${C.length? '<div class="grid2">'+C.map(c=>`<button class="item" data-client="${c.user_id}"><div><div class="t">${esc(c.display_name||c.email||'Client')}</div><div class="s">${esc(({app:'App member',pro:'Pro membership',coaching:'1:1 coaching'})[c.level]||c.level)} · ${esc(c.status)}</div></div><span class="r">›</span></button>`).join('')+'</div>'
+    ${pend.length?`<div class="hud" style="margin-bottom:14px"><div class="ph"><h3>Check-ins to review (${pend.length})</h3><span class="cp red">NEW</span></div>${pend.slice(0,6).map(x=>`<button class="li" data-ckrev="${x.c.user_id}"><div class="ico">✓</div><div style="min-width:0;flex:1;text-align:left"><div class="t">${esc(x.c.display_name||x.c.email||'Client')}</div><div class="s">${esc((x.ck.win||x.ck.struggle||x.ck.question||'Week ending '+x.ck.week).slice(0,70))}</div></div><span class="cp w">REVIEW</span></button>`).join('')}</div>`:''}
+    ${C.length? '<div class="grid2">'+order.map(c=>{ const h=healthOf(c); return `<button class="item" data-client="${c.user_id}"><div><div class="t">${esc(c.display_name||c.email||'Client')} ${canHealth()?healthChip(h):''}</div><div class="s">${esc(lvl(c))} · ${esc(c.status)}</div></div><span class="r">›</span></button>`; }).join('')+'</div>'
       : '<div class="empty">No clients yet.<br>When someone signs up to the app, tap <b>Add client</b> to link them. You can then set their level, see their week, and push edited programming straight into their app.</div>'}`;
 }
 
@@ -783,7 +793,7 @@ function renderClients(){
 // Keywords that hold a message for the coach instead of letting the AI answer.
 // Deliberately broad — a false positive just means the coach sees a normal
 // message a bit sooner, which is a far smaller cost than a missed one.
-const RISK_WORDS = /\b(pain|hurt|injur|sore(?!ness)|sprain|strain|numb|dizzy|chest|breath|faint|bleed|sick|ill|fever|medicat|pregnan|period|cancel|refund|charge|billing|price|cost|quit|anxious|depress|binge|purge|overwhelm|can.t cope|suicid|self.harm)\b/i;
+const RISK_WORDS = /\b(pain\w*|hurt\w*|injur\w*|sore(?!ness)\w*|sprain\w*|strain\w*|numb\w*|dizz\w*|chest|breath\w*|faint\w*|bleed\w*|sick\w*|ill|fever\w*|medicat\w*|pregnan\w*|period|cancel\w*|refund\w*|charg\w*|billing|pric\w*|how much|fees?|costs?|quit|anxi\w*|depress\w*|binge|purge|overwhelm\w*|can.t cope|suicid\w*|self.harm)\b/i;
 
 function conversationsFromMessages(){
   const byKey = new Map();
@@ -825,10 +835,12 @@ function threadHTML(c){
       ${c.msgs.map(m=>`<div class="b ${m.direction==='out'?'me':'ai'}">${m.author==='ai'?'<div style="font-size:10.5px;color:var(--dim);margin-bottom:3px;">Redline assistant · AI</div>':''}${esc(m.body)}</div>`).join('')}
     </div>
     ${c.flagged && flaggedMsg ? `<div class="help" style="border:1px solid var(--red-line);background:rgba(232,48,42,.07);border-radius:10px;padding:11px 13px;color:#e9c9c7;margin-bottom:14px;"><b style="color:var(--red)">Held for you.</b> ${esc(flaggedMsg.flagged)}</div>` : ''}
+    ${SNIPS.length?`<div class="fld"><label>Saved replies</label><select class="sel" id="replySnip"><option value="">Insert a saved reply...</option>${SNIPS.map(x=>`<option value="${x.id}">${esc(x.title)}</option>`).join('')}</select></div>`:''}
     <div class="fld"><label>Reply</label><textarea class="ta" id="replyBox" rows="3" placeholder="Type a reply..."></textarea></div>
     <button class="btn pri" id="replySend" style="width:100%">Send reply</button>`;
 }
 function bindThread(b, c, done){
+  const sn=$('#replySnip',b); if(sn) sn.onchange=()=>{ const x=SNIPS.find(y=>y.id===sn.value); if(x){ const cl=c.client_id?clientOf(c.client_id):null; $('#replyBox',b).value=snipText(x.text,cl||{display_name:c.name}); } sn.value=''; };
   $('#replySend',b).onclick = ()=>working($('#replySend',b),'Sending...',async()=>{
     const text = $('#replyBox',b).value.trim();
     if(!text){ toast('Write something first.'); return; }
@@ -880,6 +892,7 @@ function conversationThreadSheet(key){
 // questions), holds it for the coach (anything risky), or drafts a reply
 // into the approval queue (everything else).
 async function handleIncomingMessage(msg){
+  if(/^(Weekly check-in submitted|New client intake completed)/.test(msg.body||'')){ intelRefresh(true).then(ok=>{ if(ok&&!busyTyping()) render(); }); return; }
   if(RISK_WORDS.test(msg.body)){
     await db.update('messages','id',msg.id,{ flagged:'This mentions something that needs a personal reply — health, pain, billing or similar.' });
     MSGS = await db.list('messages');
@@ -961,7 +974,7 @@ function settingsSheet(){
       <button class="btn" id="sTeam">Team &amp; access</button>
       <button class="btn" id="sNotif">Notifications</button>
     </div>
-    <div class="row"><button class="btn" id="sIG">Post to Instagram</button><button class="btn" id="sPlan">Weekly plan</button></div>
+    <div class="row"><button class="btn" id="sIG">Post to Instagram</button><button class="btn" id="sPlan">Weekly plan</button><button class="btn" id="sSnip">Saved replies</button></div>
     <div class="row"><button class="btn ghost" id="sOut">Sign out</button><button class="btn pri" id="sSave">Save</button></div>`, b=>{
     $('#sSave',b).onclick = async ()=>{
       S = { handle:$('#sHandle',b).value.trim(), niche:$('#sNiche',b).value.trim(), offer:$('#sOffer',b).value.trim(), price:$('#sPrice',b).value.trim(), tone:$('#sTone',b).value.trim(), dmCap:Number($('#sCap',b).value)||20 };
@@ -983,17 +996,21 @@ function settingsSheet(){
     $('#sNotif',b).onclick = ()=>{ closeSheet(); notificationsSheet(); };
     $('#sIG',b).onclick = ()=>{ closeSheet(); igPostSheet(); };
     $('#sPlan',b).onclick = ()=>{ closeSheet(); planSheet(); };
+    $('#sSnip',b).onclick = ()=>{ closeSheet(); snippetsSheet(); };
   });
 }
 
 // ---------- Post to Instagram ----------
 // Uploads the photo/video to free Supabase storage (Instagram needs a public link to fetch it from),
 // then asks the server to publish it to your connected Instagram account.
-function jpegFrom(file){
+function jpegFrom(file, feed){
   return new Promise((res,rej)=>{
     const img=new Image(), u=URL.createObjectURL(file);
-    img.onload=()=>{ const w=Math.min(1440,img.naturalWidth), h=Math.round(img.naturalHeight*w/img.naturalWidth);
-      const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+    img.onload=()=>{ let sx=0, sy=0, sw=img.naturalWidth, sh=img.naturalHeight;
+      if(feed){ const r=sw/sh;   // Instagram feed photos must be between 4:5 and 1.91:1
+        if(r<0.8){ const nh=Math.round(sw/0.8); sy=Math.round((sh-nh)/2); sh=nh; } else if(r>1.91){ const nw=Math.round(sh*1.91); sx=Math.round((sw-nw)/2); sw=nw; } }
+      const w=Math.min(1440,sw), h=Math.round(sh*w/sw);
+      const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,sx,sy,sw,sh,0,0,w,h);
       c.toBlob(b=>{ URL.revokeObjectURL(u); b?res(b):rej(new Error('Could not read that photo.')); },'image/jpeg',0.92); };
     img.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error('Could not read that photo. Try a JPG or PNG.')); };
     img.src=u;
@@ -1198,6 +1215,95 @@ async function makeReelBlob(card, onTick){
   return blob;
 }
 
+// ---------- Own photo/video with animated text on top ----------
+const OV_MAX_SECONDS=60;
+function ovLayout(x, ov, W, H){
+  const pad=70, tall=H>1500; let size=tall?120:100, lines=[];
+  for(;size>=64;size-=6){ lines=wrapText(x,String(ov.headline||'').toUpperCase(),'700 '+size+'px "Barlow Condensed", Impact, sans-serif',W-pad*2); if(lines.length<=3) break; }
+  return { pad, size, lines, top: tall?360:150, tall };
+}
+function drawCover(x, src, sw, sh, W, H){
+  const s=Math.max(W/sw,H/sh), dw=sw*s, dh=sh*s; x.drawImage(src,(W-dw)/2,(H-dh)/2,dw,dh);
+}
+// t = seconds into the clip; dur = clip length; still = draw everything at once (photos and previews)
+function drawOverlay(x, t, W, H, ov, lay, logo, dur, still){
+  const ease=u=>1-Math.pow(1-Math.min(1,Math.max(0,u)),3);
+  const words=ov.headline||'', pts=(ov.lines||[]).filter(Boolean).slice(0,3), cta=ov.cta&&ov.word;
+  let g=x.createLinearGradient(0,0,0,H*0.45); g.addColorStop(0,'rgba(0,0,0,0.62)'); g.addColorStop(1,'rgba(0,0,0,0)');
+  x.globalAlpha=1; x.fillStyle=g; x.fillRect(0,0,W,H*0.45);
+  g=x.createLinearGradient(0,H*0.5,0,H); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.66)'); x.fillStyle=g; x.fillRect(0,H*0.5,W,H*0.5);
+  x.textBaseline='alphabetic'; x.textAlign='left';
+  const ctaLen=cta?Math.min(3,dur*0.25):0, hEnd=still?1e9:Math.min(5,dur*0.5), pEnd=dur-ctaLen-(cta?0.2:0.3);
+  if(ov.logo&&logo){ x.globalAlpha=still?1:ease(t/0.6); x.drawImage(logo,40,205,432,100,lay.pad-12,lay.top-110,300,69); }
+  if(words){
+    let a=still?1:ease((t-0.2)/0.5)*(1-ease((t-hEnd)/0.4));
+    if(a>0){ x.font='700 '+lay.size+'px "Barlow Condensed", Impact, sans-serif'; x.shadowColor='rgba(0,0,0,0.55)'; x.shadowBlur=18;
+      lay.lines.forEach((l,i)=>{ const u=still?1:ease((t-0.25-i*0.15)/0.5); x.globalAlpha=Math.min(a,u); x.fillStyle='#F5F5F5'; x.fillText(l,lay.pad,lay.top+lay.size*(i*0.98+1)+(1-u)*40); });
+      x.shadowBlur=0; x.globalAlpha=a; x.fillStyle='#E8302A'; x.fillRect(lay.pad,lay.top+lay.size*(lay.lines.length*0.98+1)+6,140*(still?1:ease((t-0.8)/0.5)),9); }
+  }
+  const pill=(txt,cy,a)=>{ x.globalAlpha=a; x.font='600 44px "Inter", Arial, sans-serif'; const tw=x.measureText(txt).width+76, bx=(W-tw)/2;
+    rrect(x,bx,cy,tw,92,46); x.fillStyle='rgba(8,9,10,0.88)'; x.fill(); x.strokeStyle='rgba(232,48,42,0.75)'; x.lineWidth=3; x.stroke();
+    x.fillStyle='#fff'; x.textAlign='center'; x.fillText(txt,W/2,cy+61); x.textAlign='left'; };
+  const ctaBox=(cy,a)=>{ x.globalAlpha=a; const txt='DM  '+String(ov.word).toUpperCase(); x.font='700 92px "Barlow Condensed", Impact, sans-serif'; const tw=x.measureText(txt).width+110, bx=(W-tw)/2;
+    rrect(x,bx,cy,tw,138,30); x.fillStyle='#E8302A'; x.fill(); x.fillStyle='#fff'; x.textAlign='center'; x.fillText(txt,W/2,cy+98); x.textAlign='left'; };
+  const baseY=lay.tall?Math.round(H*0.66):Math.round(H*0.62);
+  if(still){
+    let y=baseY; pts.forEach(p=>{ pill(p,y,1); y+=112; }); if(cta) ctaBox(y+14,1);
+  } else {
+    if(pts.length){ const slot=Math.max(0.8,(pEnd-1.2)/pts.length);
+      pts.forEach((p,i)=>{ const s=1.2+i*slot, e=Math.min(s+slot-0.1,pEnd); if(t<s||t>e) return; const a=ease((t-s)/0.35)*(1-ease((t-(e-0.3))/0.3)); pill(p,baseY+(1-ease((t-s)/0.35))*36,a); }); }
+    if(cta&&t>dur-ctaLen){ const u=ease((t-(dur-ctaLen))/0.45); ctaBox(baseY+(1-u)*40,u); }
+  }
+  x.globalAlpha=1;
+}
+async function ovLoadMedia(file, isVideo){
+  if(!isVideo){
+    const url=URL.createObjectURL(file);
+    try{ const img=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('Could not read that photo. Try a JPG or PNG.')); i.src=url; }); return { src:img, w:img.naturalWidth, h:img.naturalHeight, url }; }
+    catch(e){ URL.revokeObjectURL(url); throw e; }
+  }
+  const url=URL.createObjectURL(file), v=document.createElement('video'); v.playsInline=true; v.preload='auto'; v.src=url;
+  await new Promise((res,rej)=>{ v.onloadeddata=res; v.onerror=()=>rej(new Error('Could not read that video. Export it as MP4 or MOV from your phone.')); });
+  if(!isFinite(v.duration)||v.duration<1) throw new Error('That video looks empty or too short.');
+  return { src:v, w:v.videoWidth, h:v.videoHeight, url, dur:v.duration };
+}
+async function paintStill(canvas, file, isVideo, ov, tall){
+  try{ await document.fonts.load('700 100px "Barlow Condensed"'); await document.fonts.load('600 40px "Inter"'); }catch(e){}
+  const m=await ovLoadMedia(file,isVideo); const W=1080,H=tall?1920:1350; canvas.width=W; canvas.height=H; const x=canvas.getContext('2d');
+  try{
+    if(isVideo){ m.src.currentTime=Math.min(1,m.dur/2); await new Promise(r=>{ m.src.onseeked=r; setTimeout(r,1500); }); }
+    x.fillStyle='#000'; x.fillRect(0,0,W,H); drawCover(x,m.src,m.w,m.h,W,H);
+    if(ov.on) drawOverlay(x,0,W,H,ov,ovLayout(x,ov,W,H),await loadLogo(),m.dur||10,true);
+  } finally { URL.revokeObjectURL(m.url); }
+  return canvas;
+}
+async function makeOverlayVideo(file, ov, onTick){
+  const mime=reelMime();
+  if(!mime) throw new Error('This browser cannot save MP4 video. Use an up-to-date Chrome or Safari.');
+  try{ await document.fonts.load('700 100px "Barlow Condensed"'); await document.fonts.load('600 40px "Inter"'); }catch(e){}
+  const m=await ovLoadMedia(file,true), v=m.src;
+  try{
+    if(m.dur>OV_MAX_SECONDS+0.5) throw new Error('That clip is '+Math.round(m.dur)+' seconds. Trim it to '+OV_MAX_SECONDS+' seconds or less.');
+    const W=1080,H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const x=cv.getContext('2d');
+    const logo=await loadLogo(), lay=ovLayout(x,ov,W,H), dur=m.dur;
+    const paint=t=>{ x.globalAlpha=1; x.fillStyle='#000'; x.fillRect(0,0,W,H); drawCover(x,v,m.w,m.h,W,H); drawOverlay(x,t,W,H,ov,lay,logo,dur,false); };
+    const stream=cv.captureStream(30); let ac=null, hasAudio=false;
+    try{ const AC=window.AudioContext||window.webkitAudioContext; ac=new AC(); const src=ac.createMediaElementSource(v), dest=ac.createMediaStreamDestination(); src.connect(dest);
+      const tr=dest.stream.getAudioTracks(); tr.forEach(t=>stream.addTrack(t)); hasAudio=tr.length>0; if(ac.state==='suspended') await ac.resume(); }catch(e){ hasAudio=false; }
+    const rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:5000000}), chunks=[];
+    rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+    const done=new Promise((res,rej)=>{ rec.onstop=()=>res(new Blob(chunks,{type:'video/mp4'})); rec.onerror=()=>rej(new Error('Recording failed.')); });
+    v.currentTime=0; await new Promise(r=>{ v.onseeked=r; setTimeout(r,800); }); paint(0);
+    rec.start(250);
+    try{ await v.play(); }catch(e){ rec.stop(); throw new Error('The browser blocked playing the clip. Press the button again and keep this tab open.'); }
+    await new Promise(res=>{ const guard=setTimeout(res,(dur+8)*1000); const step=()=>{ paint(v.currentTime); if(onTick) onTick(Math.min(1,v.currentTime/dur)); if(v.ended||v.currentTime>=dur-0.05){ clearTimeout(guard); res(); } else requestAnimationFrame(step); }; requestAnimationFrame(step); });
+    paint(dur); await new Promise(r=>setTimeout(r,250)); rec.stop();
+    const blob=await done; try{ ac&&ac.close(); }catch(e){}
+    if(blob.size<20000) throw new Error('The video came out empty. Keep this tab open and in front while it records, then try again.');
+    return { blob, audio:hasAudio, seconds:dur };
+  } finally { try{ v.pause(); }catch(e){} URL.revokeObjectURL(m.url); }
+}
+
 // ---------- Weekly plan: 1 post or reel a day, a story repost, and 2 call-to-action stories ----------
 const PLAN_TIMES={ cta1:'07:30', post:'12:00', repost:'17:00', cta2:'19:30' };
 const atLocal=(d,hhmm)=>{ const [h,m]=hhmm.split(':').map(Number); const x=new Date(d); x.setHours(h,m,0,0); return x.toISOString(); };
@@ -1214,7 +1320,15 @@ async function planRows(){
   const { data, error } = await sb.from('ig_schedule').select('*').gte('run_at',since).order('run_at',{ascending:true});
   if(error) throw error; return data||[];
 }
-async function generateWeek(reels, demos, tick){
+let GEN_NOTES=[];
+async function ovTextFor(topic){
+  const j=await aiJSON('I am posting my own photo or video to Instagram. What it shows: "'+topic+'".\nReturn JSON only: {"headline":"punchy overlay text, max 7 words, no full stop","lines":["up to 3 short overlay points, max 7 words each, only things that are true of this content"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me"}\nDo not invent results, numbers or testimonials. Do not sound like an AI: no hype, no triplets of adjectives.',1500);
+  const ov={ on:true, headline:String(j.headline||'').trim(), lines:(j.lines||[]).map(String).slice(0,3), word:String(j.word||'COACH').toUpperCase().replace(/[^A-Z0-9]/g,'')||'COACH', logo:true, cta:true };
+  const cap=String(j.caption||'').trim()+((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
+  return { ov, cap };
+}
+async function generateWeek(reels, demos, tick, libN){
+  libN=libN||0; GEN_NOTES=[];
   const rows=await planRows(); const recent=(await (async()=>{ if(DEMO) return rd('ig_schedule'); const {data}=await sb.from('ig_schedule').select('label,run_at').order('run_at',{ascending:false}).limit(40); return data||[]; })()).map(r=>r.label).filter(Boolean).slice(0,30);
   let start=new Date(); start.setHours(0,0,0,0); start.setDate(start.getDate()+1);
   const last=rows.filter(r=>r.status!=='skipped').map(r=>r.run_at).sort().pop();
@@ -1234,14 +1348,47 @@ async function generateWeek(reels, demos, tick){
       demoPick[demoDays[k]]={sc,dj};
     }
   }
+  const T=Object.assign({},PLAN_TIMES);
+  try{ const bt=await bestPostTime(); if(bt&&bt.enough){ T.post=bt.best.slot; const m2=h=>{const [a,b]=h.split(':').map(Number);return a*60+b;}; ['cta1','repost','cta2'].forEach(k=>{ if(Math.abs(m2(T[k])-m2(T.post))<60){ const mm=m2(T.post)+(m2(T[k])>=m2(T.post)?90:-90), hh=Math.max(6,Math.min(22,Math.floor(mm/60))); T[k]=String(hh).padStart(2,'0')+':'+String(((mm%60)+60)%60).padStart(2,'0'); } }); } }catch(e){}
+  const libPick={};
+  if(libN>0){
+    let lib=await libraryRows(); lib=lib.filter(x=>x.url);
+    if(!lib.length) throw new Error('Your library is empty. Add clips under "My content" first, or set library days to none.');
+    lib.sort((a,b)=>(a.times_used||0)-(b.times_used||0)||String(a.last_used||'').localeCompare(String(b.last_used||'')));
+    const order=[2,4,0,6,1,3,5]; const free=order.filter(d=>!demoDays.includes(d)&&!reelDays.includes(d)), rest=order.filter(d=>!demoDays.includes(d)&&reelDays.includes(d));
+    const ld=free.concat(rest).slice(0,libN);
+    for(let k=0;k<ld.length;k++){ const it=lib[k%lib.length]; libPick[ld[k]]={it}; }
+  }
   const cv=document.createElement('canvas'); let made=0;
   for(let i=0;i<7;i++){
     const d=days[i], day=new Date(start); day.setDate(start.getDate()+i);
     const card={headline:String(d.headline||'').trim(), lines:(d.lines||[]).map(String).slice(0,3), word:String(d.word||'COACH')};
     const cap=String(d.caption||'').trim()+((d.hashtags&&d.hashtags.length)?('\n\n'+d.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
     const mk=(r)=>Object.assign({owner:ME.id,caption:'',status:'draft'},r);
-    let parent;
-    if(demoPick[i]){
+    let parent, handled=false;
+    if(libPick[i]){
+      const it=libPick[i].it;
+      try{
+        tick('Day '+(i+1)+' of 7: putting text over "'+(it.name||'your clip')+'"...');
+        const t=await ovTextFor((it.description||it.name||'my own content').slice(0,300));
+        const f=await libFile(it), lab=t.ov.headline||it.name||'My content';
+        if(it.kind==='video'){
+          const r=await makeOverlayVideo(f,t.ov,u=>tick('Day '+(i+1)+' of 7: recording "'+(it.name||'clip')+'" '+Math.round(u*100)+'% (keep this tab open)'));
+          const url=await putMedia(r.blob,'mp4','video/mp4');
+          [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:t.cap,label:lab,run_at:atLocal(day,T.post)})]);
+          await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+lab,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
+        } else {
+          await paintStill(cv,f,false,t.ov,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
+          await paintStill(cv,f,false,t.ov,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
+          [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:t.cap,label:lab,run_at:atLocal(day,T.post)})]);
+          await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+lab,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
+        }
+        handled=true;
+        try{ await db.update('ig_library','id',it.id,{times_used:(it.times_used||0)+1,last_used:new Date().toISOString()}); }catch(e){}
+      }catch(e){ GEN_NOTES.push('"'+(it.name||'a library item')+'" could not be used ('+(e.message||e)+'). A designed post was made for that day instead.'); }
+    }
+    if(handled){ /* library day done */ }
+    else if(demoPick[i]){
       const {sc,dj}=demoPick[i];
       const dcard={headline:String(dj.headline||sc.title).trim(), lines:(dj.lines||[]).map(String).slice(0,3), word:String(dj.word||'APP'), demo:sc, file:sc.file};
       const dcap=String(dj.caption||'').trim()+((dj.hashtags&&dj.hashtags.length)?('\n\n'+dj.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
@@ -1250,32 +1397,32 @@ async function generateWeek(reels, demos, tick){
         tick('Day '+(i+1)+' of 7: recording the app demo reel (keep this tab open)...');
         const blob=await makeReelBlob(dcard,u=>tick('Day '+(i+1)+' of 7: recording the app demo reel '+Math.round(u*100)+'% (keep this tab open)'));
         const url=await putMedia(blob,'mp4','video/mp4');
-        [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:dcap,label:dlabel,run_at:atLocal(day,PLAN_TIMES.post)})]);
-        await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+dlabel,run_at:atLocal(day,PLAN_TIMES.repost),repost_of:parent.id})]);
+        [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:dcap,label:dlabel,run_at:atLocal(day,T.post)})]);
+        await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+dlabel,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
       } else {
         tick('Day '+(i+1)+' of 7: designing the app demo post...');
         await renderDemoCard(cv,dcard,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
         await renderDemoCard(cv,dcard,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
-        [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:dcap,label:dlabel,run_at:atLocal(day,PLAN_TIMES.post)})]);
-        await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+dlabel,run_at:atLocal(day,PLAN_TIMES.repost),repost_of:parent.id})]);
+        [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:dcap,label:dlabel,run_at:atLocal(day,T.post)})]);
+        await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+dlabel,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
       }
     } else if(reelDays.includes(i)){
       tick('Day '+(i+1)+' of 7: recording the reel (keep this tab open)...');
       const blob=await makeReelBlob(card,u=>tick('Day '+(i+1)+' of 7: recording the reel '+Math.round(u*100)+'% (keep this tab open)'));
       const url=await putMedia(blob,'mp4','video/mp4');
-      [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:cap,label:card.headline,run_at:atLocal(day,PLAN_TIMES.post)})]);
-      await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+card.headline,run_at:atLocal(day,PLAN_TIMES.repost),repost_of:parent.id})]);
+      [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:cap,label:card.headline,run_at:atLocal(day,T.post)})]);
+      await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+card.headline,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
     } else {
       tick('Day '+(i+1)+' of 7: designing the post...');
       await renderCard(cv,card,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
       await renderCard(cv,card,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
-      [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:cap,label:card.headline,run_at:atLocal(day,PLAN_TIMES.post)})]);
-      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+card.headline,run_at:atLocal(day,PLAN_TIMES.repost),repost_of:parent.id})]);
+      [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:cap,label:card.headline,run_at:atLocal(day,T.post)})]);
+      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+card.headline,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
     }
     for(const [k,key] of [['cta1','cta1'],['cta2','cta2']]){
       const c=d[k]||{}; await renderCTA(cv,{headline:String(c.headline||'Want a plan that fits your week?').trim(),word:String(c.word||'COACH')});
       const u=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
-      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u,label:'CTA story: '+String(c.headline||'').trim(),run_at:atLocal(day,PLAN_TIMES[key])})]);
+      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u,label:'CTA story: '+String(c.headline||'').trim(),run_at:atLocal(day,T[key])})]);
     }
     made++;
   }
@@ -1318,14 +1465,15 @@ async function planSheet(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><span class="pill">${drafts} to approve</span><span class="pill" style="color:#3FB950;border-color:rgba(63,185,80,.4)">${approved} scheduled</span>${failed?`<span class="pill">${failed} failed</span>`:''}</div>
     <div class="fld"><label>Animated reels in the next 7 days</label><select class="sel" id="plReels">${[0,2,3,4].map(n=>`<option value="${n}" ${n===(canReel?3:0)?'selected':''} ${n>0&&!canReel?'disabled':''}>${n===0?'None, posts only':n+' reels, the rest posts'}</option>`).join('')}</select>${canReel?'':'<div class="help" style="margin-top:6px">This browser cannot save MP4 reels, so reels are off. Use an up-to-date Chrome or Safari for those.</div>'}</div>
     <div class="fld"><label>App demo posts in the next 7 days</label><select class="sel" id="plDemos">${[0,1,2,3].map(n=>`<option value="${n}" ${n===1?'selected':''}>${n===0?'None':n+(n===1?' day shows':' days show')+' the client app'}</option>`).join('')}</select><div class="help" style="margin-top:6px">Uses real screens from your client app inside a phone frame. These replace that day's usual post.</div></div>
+    <div class="fld"><label>Days that use your own clips or photos (from My content)</label><select class="sel" id="plLib">${[0,1,2,3].map(n=>`<option value="${n}" ${n===0?'selected':''}>${n===0?'None':n+(n===1?' day':' days')}</option>`).join('')}</select></div>
     <div class="row"><button class="btn" id="plGen">Write and design the next 7 days</button>${drafts?`<button class="btn pri" id="plAll">Approve all ${drafts}</button>`:''}</div>
     <div id="plProg" class="help" style="margin-top:10px"></div>
     ${list}`, b=>{
     const idOf=el=>el.closest('.plr').dataset.id;
     const reload=()=>{ closeSheet(); planSheet(); };
     $('#plGen',b).onclick=()=>working($('#plGen',b),'Working...',async()=>{
-      const n=await generateWeek(Number($('#plReels',b).value), Number($('#plDemos',b).value), m=>{ $('#plProg',b).textContent=m; });
-      toast(n+' days ready to check'); reload();
+      const n=await generateWeek(Number($('#plReels',b).value), Number($('#plDemos',b).value), m=>{ $('#plProg',b).textContent=m; }, Number($('#plLib',b).value));
+      toast(n+' days ready to check'+(GEN_NOTES.length?'. '+GEN_NOTES[0]:'')); reload();
     });
     const allBtn=$('#plAll',b); if(allBtn) allBtn.onclick=()=>working(allBtn,'Approving...',async()=>{
       for(const r of rows.filter(r=>r.status==='draft')) await db.update('ig_schedule','id',r.id,{status:'approved',updated_at:new Date().toISOString()});
@@ -1340,7 +1488,8 @@ async function planSheet(){
   });
 }
 
-function igPostSheet(){
+function igPostSheet(opts){
+  opts=opts||{};
   sheet('Post to Instagram', `
     <div class="help">Nothing is posted until you press <b>Post now</b>.</div>
     <div class="fld"><label>How do you want to make it?</label><select class="sel" id="igMode">
@@ -1356,8 +1505,26 @@ function igPostSheet(){
         <div class="fld"><label>Three points</label><textarea class="ta" id="igPts" rows="3"></textarea></div>
       </div>
     </div>
-    <div id="igManual"><div class="fld"><label>Photo or video</label><input class="inp" id="igFile" type="file" accept="image/*,video/*"></div></div>
+    <div id="igManual">
+      <div class="fld"><label>Photo or video</label><input class="inp" id="igFile" type="file" accept="image/*,video/*"></div>
+      <div class="fld" id="igLibWrap" style="display:none"><label>Or use something from My content</label><select class="sel" id="igLib"><option value="">Upload a file instead</option></select></div>
+      <div class="fld"><label>What is it about? (HQ writes the caption and text for you)</label><textarea class="ta" id="ovTopic" rows="2" placeholder="e.g. my deadlift warm-up, or: client check-in day"></textarea></div>
+      <button class="btn" id="ovSuggest" type="button">Suggest caption and text</button>
+      <label class="chk" style="display:flex;gap:8px;align-items:center;margin:14px 0 6px"><input type="checkbox" id="ovOn"> Add animated text over it (headline, points, DM call to action)</label>
+      <div id="ovBox" style="display:none">
+        <div class="fld"><label>Headline</label><input class="inp" id="ovHead"></div>
+        <div class="fld"><label>Up to three points (one per line)</label><textarea class="ta" id="ovPts" rows="3"></textarea></div>
+        <div class="fld"><label>DM word</label><input class="inp" id="ovWord" placeholder="COACH"></div>
+        <label class="chk" style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="ovLogo" checked> Redline logo at the top</label>
+        <label class="chk" style="display:flex;gap:8px;align-items:center;margin:6px 0 10px"><input type="checkbox" id="ovCta" checked> Finish with "DM WORD" box</label>
+        <button class="btn" id="ovPrevBtn" type="button">Show preview</button>
+        <canvas id="ovPrev" style="display:none;width:100%;max-width:340px;margin-top:12px;border-radius:12px;border:1px solid var(--line,#222)"></canvas>
+        <div class="help" style="margin-top:8px">Video is re-recorded with the text on top, in real time, so a 20 second clip takes about 20 seconds. Keep this tab open and in front. Clips up to 60 seconds.</div>
+      </div>
+    </div>
     <div class="fld" id="igCapWrap"><label>Caption</label><textarea class="ta" id="igCap" rows="5" placeholder="Write your caption"></textarea></div>
+    <div class="fld"><label>When?</label><select class="sel" id="igWhen"><option value="now">Post now</option><option value="later">Schedule it (goes out automatically)</option></select></div>
+    <div class="fld" id="igAtWrap" style="display:none"><label>Date and time</label><input class="inp" id="igAt" type="datetime-local"></div>
     <div class="help" id="igNote"></div>
     <div class="row"><button class="btn pri" id="igGo">Post now</button></div>`, b=>{
     const mode=$('#igMode',b), kind=$('#igKind',b), note=$('#igNote',b);
@@ -1379,6 +1546,28 @@ function igPostSheet(){
     mode.onchange=()=>{ upd(); }; kind.onchange=()=>{ upd(); if(card) redraw(); }; upd();
     const redraw=async()=>{ if(!card) return; card.headline=$('#igHead',b).value; card.lines=$('#igPts',b).value.split('\n').map(t=>t.trim()).filter(Boolean).slice(0,3); await renderCard($('#igPrev',b), card, kind.value==='story_photo'); };
     $('#igHead',b).oninput=()=>redraw(); $('#igPts',b).oninput=()=>redraw();
+    let libRows=[];
+    libraryRows().then(r=>{ libRows=r; if(r.length){ $('#igLibWrap',b).style.display=''; $('#igLib',b).innerHTML+=r.map(x=>`<option value="${x.id}">${esc((x.kind==='video'?'Video: ':'Photo: ')+(x.name||'Untitled'))}</option>`).join(''); } }).catch(()=>{});
+    $('#igLib',b).onchange=()=>{ const r=libRows.find(x=>x.id===$('#igLib',b).value); if(r){ if(r.description) $('#ovTopic',b).value=r.description; const want=r.kind==='video'?['reel','story_video']:['photo','story_photo']; if(!want.includes(kind.value)){ kind.value=want[0]; upd(); } } };
+    const getFile=async()=>{ const lid=$('#igLib',b).value; if(lid){ const r=libRows.find(x=>x.id===lid); if(r){ const f=await libFile(r); f._lib=r; return f; } } return $('#igFile',b).files[0]; };
+    if(opts.manual){ mode.value='manual'; upd(); if(opts.topic) $('#ovTopic',b).value=opts.topic; if(opts.caption) $('#igCap',b).value=opts.caption.slice(0,2000); note.textContent='Film it, then pick the clip here. Press "Suggest caption and text" if you want the AI to write the text over it.'; }
+    const when=$('#igWhen',b), goBtn=$('#igGo',b);
+    const pad2=n=>String(n).padStart(2,'0'); const dt=new Date(Date.now()+864e5); dt.setHours(12,0,0,0);
+    $('#igAt',b).value=dt.getFullYear()+'-'+pad2(dt.getMonth()+1)+'-'+pad2(dt.getDate())+'T12:00';
+    when.onchange=()=>{ $('#igAtWrap',b).style.display=when.value==='later'?'':'none'; goBtn.textContent=when.value==='later'?'Schedule':'Post now'; };
+    const ovData=()=>({ on:$('#ovOn',b).checked, headline:$('#ovHead',b).value.trim(), lines:$('#ovPts',b).value.split('\n').map(t=>t.trim()).filter(Boolean).slice(0,3), word:$('#ovWord',b).value.trim().toUpperCase().replace(/[^A-Z0-9]/g,''), logo:$('#ovLogo',b).checked, cta:$('#ovCta',b).checked });
+    $('#ovOn',b).onchange=()=>{ $('#ovBox',b).style.display=$('#ovOn',b).checked?'':'none'; };
+    $('#ovPrevBtn',b).onclick=()=>working($('#ovPrevBtn',b),'Drawing...',async()=>{
+      const f=await getFile(); if(!f) throw new Error('Choose a photo or video first.');
+      const isV=/^video/.test(f.type)||/\.(mp4|mov|m4v|webm)$/i.test(f.name), k=kind.value;
+      const c=$('#ovPrev',b); c.style.display=''; await paintStill(c,f,isV,ovData(),k.startsWith('story')||k==='reel'||k==='story_video');
+    });
+    $('#ovSuggest',b).onclick=()=>working($('#ovSuggest',b),'Writing...',async()=>{
+      const topic=$('#ovTopic',b).value.trim(); if(!topic) throw new Error('Say what it is about first.');
+      const j=await aiJSON('I am posting my own photo or video to Instagram. What it shows: "'+topic+'".\nReturn JSON only: {"headline":"punchy overlay text, max 7 words, no full stop","lines":["up to 3 short overlay points, max 7 words each, only things that are true of this content"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me"}\nDo not invent results, numbers or testimonials. Do not sound like an AI: no hype, no triplets of adjectives.',1500);
+      $('#ovHead',b).value=String(j.headline||'').trim(); $('#ovPts',b).value=(j.lines||[]).map(String).slice(0,3).join('\n'); $('#ovWord',b).value=String(j.word||'COACH').toUpperCase();
+      $('#igCap',b).value=String(j.caption||'').trim()+((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
+    });
     $('#igMake',b).onclick = ()=>working($('#igMake',b),'Writing...',async()=>{
       const topic=$('#igTopic',b).value.trim(); if(!topic) throw new Error('Type a topic first.');
       const j = await aiJSON('Write one Instagram post for this topic: "'+topic+'".\nReturn JSON only: {"headline": "punchy, max 7 words, no full stop", "lines": ["3 short, specific points, max 10 words each"], "caption": "the caption in my voice, 350 characters or fewer, plain and human, one useful idea, a soft call to action like asking them to DM a word, no hashtags in it", "hashtags": ["max 5 relevant hashtags without the # symbol"], "word": "ONE uppercase keyword people can DM me, e.g. PROTEIN"}\nNo emojis unless they feel natural. Do not sound like an AI: no "Here\'s the thing", no lists of three adjectives, no hype.', 1500);
@@ -1387,32 +1576,351 @@ function igPostSheet(){
       $('#igCap',b).value = String(j.caption||'').trim() + ((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
       $('#igPrevWrap',b).style.display=''; await redraw();
     });
-    $('#igGo',b).onclick = ()=>working($('#igGo',b),'Posting...',async()=>{
-      const k=kind.value, isPhoto=(k==='photo'||k==='story_photo'), ai_=mode.value==='ai';
+    $('#igGo',b).onclick = ()=>working($('#igGo',b),when.value==='later'?'Saving...':'Posting...',async()=>{
+      const k=kind.value, isPhoto=(k==='photo'||k==='story_photo'), ai_=mode.value==='ai', later=when.value==='later';
       if(ai_&&(k==='reel'||k==='story_video')&&!reelMime()) throw new Error('This browser cannot save MP4 reels. Use an up-to-date Chrome or Safari.');
-      let blob, ext, ctype;
-      if(DEMO){ toast('Demo mode: nothing was posted.'); return; }
+      if(DEMO&&!later){ toast('Demo mode: nothing was posted.'); return; }
+      let runAt=null; if(later){ runAt=new Date($('#igAt',b).value); if(isNaN(runAt)) throw new Error('Pick a date and time.'); if(runAt.getTime()<Date.now()+2*60000) throw new Error('Pick a time at least a few minutes from now.'); }
+      let blob, ext, ctype, extra='', headline='';
+      const goText=$('#igGo',b);
       if(ai_){
         if(!card) throw new Error('Press "Make it" first and check the result.');
+        headline=card.headline;
         if(k==='reel'||k==='story_video'){ blob=await makeReelBlob(card); ext='mp4'; ctype='video/mp4'; }
         else { await redraw(); blob=await canvasJpeg($('#igPrev',b)); ext='jpg'; ctype='image/jpeg'; }
       } else {
-        const f=$('#igFile',b).files[0]; if(!f) throw new Error('Choose a photo or video first.');
-        if(!isPhoto && f.size>50*1024*1024) throw new Error('That video is over 50 MB. Export a smaller one.');
-        blob = isPhoto ? await jpegFrom(f) : f; ext = isPhoto ? 'jpg' : (f.name.split('.').pop()||'mp4').toLowerCase(); ctype = isPhoto?'image/jpeg':(f.type||'video/mp4');
+        const f=await getFile(); if(!f) throw new Error('Choose a photo or video first.');
+        const ov=ovData(), isV=/^video/.test(f.type)||/\.(mp4|mov|m4v|webm)$/i.test(f.name);
+        if(isPhoto&&isV) throw new Error('You picked a video but chose a photo type. Change "What are you posting?" to a video type.');
+        if(!isPhoto&&!isV) throw new Error('You picked a photo but chose a video type. Change "What are you posting?" to a photo type.');
+        headline=ov.on?ov.headline:'';
+        if(ov.on){
+          if(!ov.headline&&!ov.lines.length&&!ov.cta) throw new Error('Add a headline or a point for the text, or untick "Add animated text".');
+          if(ov.cta&&!ov.word) throw new Error('Add a DM word, or untick the "DM" box.');
+          if(isPhoto){ const c=document.createElement('canvas'); await paintStill(c,f,false,ov,k==='story_photo'); blob=await canvasJpeg(c); ext='jpg'; ctype='image/jpeg'; }
+          else { const r=await makeOverlayVideo(f,ov,u=>{ goText.innerHTML='<span class="spin"></span>Recording '+Math.round(u*100)+'% (keep this open)'; }); blob=r.blob; ext='mp4'; ctype='video/mp4'; if(!r.audio) extra=' (the sound could not be carried over in this browser)'; }
+        } else {
+          if(!isPhoto && f.size>50*1024*1024) throw new Error('That video is over 50 MB. Export a smaller one.');
+          blob = isPhoto ? await jpegFrom(f, k==='photo') : f; ext = isPhoto ? 'jpg' : (f.name.split('.').pop()||'mp4').toLowerCase(); ctype = isPhoto?'image/jpeg':(f.type||'video/mp4');
+        }
       }
-      const path = ME.id+'/'+Date.now()+'.'+ext;
-      const up = await sb.storage.from('ig-media').upload(path, blob, { contentType: ctype });
-      if(up.error) throw new Error('Upload failed: '+up.error.message+' (has the storage SQL been run?)');
-      const url = sb.storage.from('ig-media').getPublicUrl(path).data.publicUrl;
+      if(blob.size>95*1024*1024) throw new Error('The finished file is too big. Use a shorter or smaller clip.');
+      const markLib=async()=>{ try{ const lr=(!ai_&&libRows.find(x=>x.id===$('#igLib',b).value)); if(lr) await db.update('ig_library','id',lr.id,{times_used:(lr.times_used||0)+1,last_used:new Date().toISOString()}); }catch(e){} };
+      if(later){
+        await markLib();
+        const url=await putMedia(blob,ext,ctype), cap=$('#igCap',b).value.trim(), label=(headline||cap.split('\n')[0]||'Your '+(KIND_LABEL[k]||'post')).slice(0,80);
+        await db.insert('ig_schedule',[{owner:ME.id,kind:k,media_url:url,caption:k.startsWith('story')?'':cap,label,status:'approved',run_at:runAt.toISOString()}]);
+        SCHED=await loadSched(); closeSheet(); try{render();}catch(e){} toast('Scheduled for '+runAt.toLocaleString([], {weekday:'short',hour:'numeric',minute:'2-digit'})+extra); return;
+      }
+      const url=await putMedia(blob,ext,ctype);
       const { data } = await sb.auth.getSession();
       const r = await fetch(SUPABASE_URL+'/functions/v1/instagram', { method:'POST',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+data.session.access_token},
-        body: JSON.stringify({ action:'publish', kind:k, url, caption:$('#igCap',b).value.trim() }) });
+        body: JSON.stringify({ action:'publish', kind:k, url, caption:$('#igCap',b).value.trim(), label:(headline||'').slice(0,80) }) });
       const j = await r.json().catch(()=>({}));
       if(!r.ok||j.error) throw new Error(j.error||('Instagram request failed ('+r.status+')'));
-      closeSheet(); toast('Posted to Instagram'); if(j.permalink) window.open(j.permalink,'_blank');
+      await markLib();
+      closeSheet(); toast('Posted to Instagram'+extra); if(j.permalink) window.open(j.permalink,'_blank');
     });
+  });
+}
+
+// ---------- My content: your own clips and photos, ready for the plan and Post now ----------
+async function libraryRows(){
+  if(DEMO) return rd('ig_library');
+  const { data, error } = await sb.from('ig_library').select('*').order('created_at',{ascending:false});
+  if(error) throw error; return data||[];
+}
+async function libFile(row){
+  const r=await fetch(row.url); if(!r.ok) throw new Error('Could not load "'+(row.name||'that file')+'" from your library.');
+  const blob=await r.blob(); return new File([blob], row.name||'clip', { type: blob.type || (row.kind==='video'?'video/mp4':'image/jpeg') });
+}
+async function librarySheet(){
+  let rows; try{ rows=await libraryRows(); }catch(e){ toast('The library is not set up yet. Run the new SQL file (number 7) first.'); return; }
+  const item=r=>`<div class="plr" data-lid="${r.id}" style="display:flex;gap:12px;padding:12px;border:1px solid var(--line2);border-radius:12px;background:var(--elev);margin-bottom:8px">
+    ${r.kind==='video'?`<video src="${esc(r.url)}#t=0.5" muted playsinline preload="metadata" style="width:54px;height:96px;object-fit:cover;border-radius:8px;background:#000"></video>`:`<img src="${esc(r.url)}" alt="" style="width:54px;height:72px;object-fit:cover;border-radius:8px;background:#000">`}
+    <div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.name||'Untitled')}</b><span style="font-size:11px;color:var(--dim);white-space:nowrap">used ${r.times_used||0}x</span></div>
+    <textarea class="ta lbDesc" rows="2" style="font-size:13px;margin-top:6px" placeholder="What is it? The AI uses this for captions and text">${esc(r.description||'')}</textarea>
+    <div style="margin-top:6px"><button class="btn sm ghost lbDel">Delete</button></div></div></div>`;
+  sheet('My content', `
+    <div class="help">Upload your own clips and photos once, with a line about each. The weekly plan and Post now can use them, and the AI puts animated text on top. Videos up to 50 MB and 60 seconds work best.</div>
+    <div class="fld"><label>Add photos or videos</label><input class="inp" id="lbFiles" type="file" accept="image/*,video/*" multiple></div>
+    <div id="lbNew"></div>
+    <div class="sec">Your library (${rows.length})</div>
+    ${rows.length? rows.map(item).join('') : '<div class="empty">Nothing here yet. Add a few clips and describe each one in a sentence.</div>'}`, b=>{
+    let picked=[];
+    $('#lbFiles',b).onchange=()=>{
+      picked=Array.from($('#lbFiles',b).files);
+      $('#lbNew',b).innerHTML = picked.length ? picked.map((f,i)=>`<div style="padding:10px 12px;border:1px dashed var(--line2);border-radius:12px;margin-bottom:8px"><div style="font-size:12px;color:var(--dim);margin-bottom:6px">${esc(f.name)} · ${(f.size/1048576).toFixed(1)} MB</div><textarea class="ta lbNewDesc" data-i="${i}" rows="2" style="font-size:13px" placeholder="What is in it? e.g. me doing a deadlift warm-up, side angle"></textarea></div>`).join('')+'<button class="btn pri" id="lbUp" style="width:100%;margin-bottom:14px">Add to my content</button>' : '';
+      const up=$('#lbUp',b); if(up) up.onclick=()=>working(up,'Uploading...',async()=>{
+        let n=0;
+        for(const [i,f] of picked.entries()){
+          const isV=/^video/.test(f.type)||/\.(mp4|mov|m4v|webm)$/i.test(f.name);
+          if(isV && f.size>50*1024*1024) throw new Error('"'+f.name+'" is over 50 MB. Trim or compress it, then add it again.');
+          const blob=isV?f:await jpegFrom(f,false), ext=isV?(f.name.split('.').pop()||'mp4').toLowerCase():'jpg', ctype=isV?(f.type||'video/mp4'):'image/jpeg';
+          let url;
+          if(DEMO) url=URL.createObjectURL(blob);
+          else { const path=ME.id+'/lib/'+Date.now()+'-'+Math.random().toString(36).slice(2,7)+'.'+ext; const u=await sb.storage.from('ig-media').upload(path,blob,{contentType:ctype}); if(u.error) throw new Error('Upload failed: '+u.error.message); url=sb.storage.from('ig-media').getPublicUrl(path).data.publicUrl; }
+          await db.insert('ig_library',[{ owner:ME.id, url, kind:isV?'video':'photo', name:f.name.replace(/\.[^.]+$/,'').slice(0,60), description:($$('.lbNewDesc',b)[i]||{}).value||'' }]); n++;
+        }
+        toast(n+' added'); closeSheet(); librarySheet();
+      });
+    };
+    $$('.lbDesc',b).forEach(t=>t.onchange=async()=>{ const id=t.closest('[data-lid]').dataset.lid; await db.update('ig_library','id',id,{description:t.value.trim()}); toast('Saved'); });
+    $$('.lbDel',b).forEach(x=>x.onclick=async()=>{
+      const row=rows.find(r=>r.id===x.closest('[data-lid]').dataset.lid); if(!row||!confirm('Remove this from your library?')) return;
+      try{ if(!DEMO){ const m=/\/ig-media\/(.+)$/.exec(row.url); if(m) await sb.storage.from('ig-media').remove([decodeURIComponent(m[1])]); } }catch(e){}
+      await db.remove('ig_library','id',row.id); closeSheet(); librarySheet();
+    });
+  });
+}
+
+// ---------- Best time to post, learned from your own results ----------
+const POST_SLOTS=['07:30','12:00','17:30','19:30'];
+async function bestPostTime(){
+  let rows=[]; try{
+    if(DEMO) rows=rd('ig_schedule');
+    else { const {data}=await sb.from('ig_schedule').select('kind,posted_at,insights').eq('status','posted').in('kind',['photo','reel']).not('insights','is',null).order('posted_at',{ascending:false}).limit(120); rows=data||[]; }
+  }catch(e){ return null; }
+  rows=rows.filter(r=>r.insights && !r.insights.none && (r.insights.views||r.insights.reach) && r.posted_at);
+  if(rows.length<10) return { enough:false, n:rows.length };
+  const mins=iso=>{ const d=new Date(iso); return d.getHours()*60+d.getMinutes(); };
+  const stats=POST_SLOTS.map(s=>{ const [h,m]=s.split(':').map(Number), c=h*60+m; const near=rows.filter(r=>Math.abs(mins(r.posted_at)-c)<=90); const avg=near.length? near.reduce((a,r)=>a+(r.insights.views||r.insights.reach||0),0)/near.length : 0; return { slot:s, n:near.length, avg }; }).filter(x=>x.n>=3);
+  if(!stats.length) return { enough:false, n:rows.length };
+  stats.sort((a,b)=>b.avg-a.avg); return { enough:true, best:stats[0], all:stats, n:rows.length };
+}
+const slotLabel=s=>{ const [h,m]=s.split(':').map(Number); return (h%12||12)+':'+String(m).padStart(2,'0')+(h<12?' am':' pm'); };
+
+// ---------- Weekly Instagram report ----------
+async function fetchReport(days){
+  if(DEMO){
+    const mk=(k,l,d,v)=>({kind:k,label:l,posted_at:addDays(-d),permalink:'',metrics:v});
+    const items=[mk('photo','Why your squat stalls',5,{views:812,reach:640,likes:41,comments:6,saved:22,shares:9}),mk('reel','Bench stalls',3,{views:2310,reach:1720,likes:96,comments:14,saved:58,shares:31}),mk('story_photo','CTA: Want a plan?',2,{views:204,reach:180,replies:3,shares:0}),mk('story_photo','Story repost',1,{views:231,reach:195,replies:1,shares:1}),mk('photo','Protein myth',1,{views:530,reach:412,likes:28,comments:3,saved:12,shares:4})];
+    const tot={views:0,reach:0,likes:0,comments:0,saved:0,shares:0,replies:0}; items.forEach(i=>Object.keys(tot).forEach(k=>tot[k]+=Number(i.metrics[k]||0)));
+    return { days, counts:{post:2,reel:1,story:2}, totals:tot, followers:{now:1124,start:1096,change:28}, best:items[1], items, warnings:[], generated_at:new Date().toISOString() };
+  }
+  const { data } = await sb.auth.getSession();
+  const r=await fetch(SUPABASE_URL+'/functions/v1/instagram',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+data.session.access_token},body:JSON.stringify({action:'report',days})});
+  const j=await r.json().catch(()=>({})); if(!r.ok||j.error) throw new Error(j.error||('Report failed ('+r.status+'). Deploy the updated instagram function first.')); return j;
+}
+function reportHTML(rep){
+  const t=rep.totals||{}, n=v=>Number(v||0).toLocaleString();
+  const tile=(l,v,sub)=>`<div class="stat"><b>${n(v)}</b><span>${l}${sub?' · '+sub:''}</span></div>`;
+  const kindLbl=k=>k==='reel'?'Reel':String(k).startsWith('story')?'Story':'Post';
+  const m=i=>i.metrics||null;
+  const rows=(rep.items||[]).map(i=>`<tr><td>${esc(new Date(i.posted_at).toLocaleDateString([], {weekday:'short',day:'numeric'}))}</td><td><b>${kindLbl(i.kind)}</b>${i.outside?' <span style="color:var(--dim)">(app)</span>':''}<div style="color:var(--dim);font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(i.label||'')}</div></td>${m(i)?`<td>${n(m(i).views)}</td><td>${n(m(i).reach)}</td><td>${String(i.kind).startsWith('story')?n(m(i).replies)+(Number(m(i).replies)===1?' reply':' replies'):n(m(i).likes)+' / '+n(m(i).comments)}</td><td>${String(i.kind).startsWith('story')?'-':n(m(i).saved)+' / '+n(m(i).shares)}</td>`:`<td colspan="4" style="color:var(--dim)">no data</td>`}</tr>`).join('');
+  const warn=(rep.warnings&&rep.warnings.length)?`<div class="help" style="border:1px solid var(--red);border-radius:10px;padding:10px;margin:12px 0"><b>Instagram did not share the numbers.</b> ${esc(rep.warnings[0])}<br>Fix: in the Meta developer dashboard, add the permission <b>instagram_business_manage_insights</b> for your Instagram login, generate a new access token, and set it again as <b>IG_ACCESS_TOKEN</b>.</div>`:'';
+  const best=rep.best&&rep.best.metrics?`<div class="help" style="margin:12px 0">Top performer: <b>${esc(rep.best.label||kindLbl(rep.best.kind))}</b> with ${n(rep.best.metrics.views||rep.best.metrics.reach)} views.</div>`:'';
+  const fol=rep.followers?` · followers ${n(rep.followers.now)} (${rep.followers.change>=0?'+':''}${rep.followers.change})`:'';
+  return `<div class="help">${rep.counts.post} posts, ${rep.counts.reel} reels, ${rep.counts.story} stories over the last ${rep.days} days${fol}.</div>
+    <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-top:10px">${tile('views',t.views)}${tile('reach',t.reach)}${tile('likes',t.likes)}${tile('comments',t.comments)}${tile('saves',t.saved)}${tile('shares',t.shares)}</div>
+    ${best}${warn}
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px"><thead><tr style="text-align:left;color:var(--dim)"><th style="padding:6px 4px">Day</th><th>What</th><th>Views</th><th>Reach</th><th>Likes / comm.</th><th>Saves / shares</th></tr></thead><tbody>${rows||'<tr><td colspan="6" style="padding:14px;color:var(--dim)">Nothing posted in this period.</td></tr>'}</tbody></table></div>`;
+}
+async function reportSheet(){
+  sheet('Instagram report', `<div class="fld"><label>Period</label><select class="sel" id="rpDays"><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option></select></div>
+    <div id="rpBody" class="help">Loading the numbers from Instagram...</div><div class="row" style="margin-top:12px"><button class="btn" id="rpCopy" style="display:none">Copy summary</button></div>
+    <div id="rpHist"></div>`, b=>{
+    let cur=null;
+    const load=()=>{ $('#rpBody',b).innerHTML='<div class="help">Loading the numbers from Instagram...</div>'; $('#rpCopy',b).style.display='none';
+      fetchReport(Number($('#rpDays',b).value)).then(rep=>{ cur=rep; $('#rpBody',b).innerHTML=reportHTML(rep); $('#rpCopy',b).style.display=''; })
+        .catch(e=>{ $('#rpBody',b).innerHTML='<div class="help" style="color:var(--red)">'+esc(e.message||String(e))+'</div>'; }); };
+    $('#rpDays',b).onchange=load; load();
+    $('#rpCopy',b).onclick=async()=>{ if(!cur) return; const t=cur.totals; await copy('Instagram, last '+cur.days+' days: '+cur.counts.post+' posts, '+cur.counts.reel+' reels, '+cur.counts.story+' stories. '+t.views+' views, '+t.reach+' reach, '+t.likes+' likes, '+t.comments+' comments, '+t.saved+' saves, '+t.shares+' shares.'+(cur.followers?' Followers '+cur.followers.now+' ('+(cur.followers.change>=0?'+':'')+cur.followers.change+').':'')); toast('Copied'); };
+    if(!DEMO) sb.from('ig_reports').select('week_start').order('week_start',{ascending:false}).limit(8).then(({data})=>{ if(data&&data.length) $('#rpHist',b).innerHTML='<div class="sec">Past weekly reports</div>'+data.map(r=>`<button class="item" data-rep="${r.week_start}"><div><div class="t">Week ending ${esc(r.week_start)}</div></div><span class="r">›</span></button>`).join(''); $$('[data-rep]',b).forEach(x=>x.onclick=async()=>{ const {data:d}=await sb.from('ig_reports').select('data').eq('week_start',x.dataset.rep).maybeSingle(); if(d){ cur=d.data; $('#rpBody',b).innerHTML=reportHTML(d.data); $('#rpCopy',b).style.display=''; } }); });
+  });
+}
+
+// ---------- Client intelligence: health score, check-in review, macro proposals, intake, photos, monthly report ----------
+let INTEL={}, INTEL_AT=0, SNIPS=[], REVIEWED={};
+const canHealth=()=>DEMO||IS_OWNER||(MYPERMS&&MYPERMS.see_health);
+const HEALTH_FIXED=['trainingLogs','targets','intake','coachPlan','trainingPlan','profile','measurements','photos'];
+const sundayKeys=n=>{ const out=[]; const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-d.getDay()); for(let i=0;i<n;i++){ const x=new Date(d); x.setDate(d.getDate()-7*i); out.push('checkin:'+dayKey(x)); } return out; };
+const entryKeys=n=>{ const out=[]; for(let i=0;i<n;i++) out.push('entries:'+dayKey(new Date(Date.now()-i*864e5))); return out; };
+const jparse=v=>{ if(v==null) return null; if(typeof v!=='string') return v; try{ return JSON.parse(v); }catch(e){ return null; } };
+async function intelLoad(list, days){
+  days=days||8; const ids=list.map(c=>c.user_id); const out={}; ids.forEach(i=>out[i]={});
+  const keys=HEALTH_FIXED.concat(entryKeys(days), sundayKeys(Math.max(5,Math.ceil(days/7)+2)));
+  if(DEMO){ ids.forEach(id=>keys.forEach(k=>{ const v=localStorage.getItem(LS+'kv:'+id+':'+k); if(v) out[id][k]=jparse(v); })); return out; }
+  if(!ids.length) return out;
+  for(let i=0;i<ids.length;i+=20){
+    const chunk=ids.slice(i,i+20);
+    const { data, error } = await sb.from('app_data').select('user_id,key,value').in('user_id',chunk).in('key',keys).limit(5000);
+    if(error) throw error;
+    (data||[]).forEach(r=>{ const v=jparse(r.value); if(v!=null && out[r.user_id]) out[r.user_id][r.key]=v; });
+  }
+  return out;
+}
+async function intelRefresh(force){
+  if(!force && Date.now()-INTEL_AT<3*60000) return false;
+  INTEL_AT=Date.now();
+  try{ INTEL=await intelLoad(C.filter(c=>c.status!=='ended')); return true; }catch(e){ console.warn('intel',e); return false; }
+}
+function latestCheckin(d){ const ks=Object.keys(d||{}).filter(k=>k.startsWith('checkin:')).sort(); return ks.length? d[ks[ks.length-1]] : null; }
+function checkinsOf(d){ return Object.keys(d||{}).filter(k=>k.startsWith('checkin:')).sort().map(k=>d[k]).filter(Boolean); }
+const MEDICAL=/\b(pain|painful|injur\w*|hurt\w*|sore|dizz\w*|faint\w*|chest|numb\w*|swell\w*|sick|ill|surgery|pregnan\w*|doctor|medication|depress\w*|anxi\w*|panic)\b/i;
+function healthOf(c, d){
+  d=d||INTEL[c.user_id]; if(!d || !Object.keys(d).length) return { score:null, label:'No data yet', cls:'w', reasons:['They have not used the app yet.'] };
+  const days=entryKeys(7); const logDays=days.filter(k=>Array.isArray(d[k])&&d[k].length).length;
+  const plan=d.coachPlan||d.trainingPlan, planDays=plan&&plan.days?plan.days.length:0, logs=d.trainingLogs||{}, since=Date.now()-7*864e5;
+  let sessions=0, lastTrain=0; Object.keys(logs).forEach(k=>{ const l=logs[k]; if(l&&l.done){ const t=l.completedAt?new Date(l.completedAt).getTime():0; if(t>=since) sessions++; if(t>lastTrain) lastTrain=t; } });
+  const ck=latestCheckin(d), ckAge=ck&&ck.submittedAt?(Date.now()-new Date(ck.submittedAt))/864e5:null;
+  let mood=null; if(ck){ const v=[ck.energy,ck.sleep,ck.motivation,ck.stress?6-ck.stress:null].filter(x=>x>0); if(v.length) mood=(v.reduce((a,b)=>a+b,0)/v.length-1)/4; }
+  const createdDays=(Date.now()-new Date(c.created_at||Date.now()))/864e5;
+  let lastLog=-1; for(let i=0;i<7;i++){ const k=days[i]; if(Array.isArray(d[k])&&d[k].length){ lastLog=i; break; } }
+  const lastAct=Math.min(lastLog>=0?lastLog:99, lastTrain?Math.floor((Date.now()-lastTrain)/864e5):99, ckAge!=null?Math.floor(ckAge):99);
+  const score=Math.round(40*logDays/7 + 30*(planDays?Math.min(1,sessions/planDays):0.5) + 15*(ckAge!=null&&ckAge<=8?1:0) + 15*(mood==null?0.5:mood));
+  const reasons=[]; reasons.push('Logged food on '+logDays+' of the last 7 days');
+  reasons.push(planDays? Math.min(sessions,planDays)+' of '+planDays+' planned sessions this week' : 'No training plan yet');
+  reasons.push(ck? ('Last check-in '+(ckAge<1?'today':Math.floor(ckAge)+' days ago')) : 'No check-in yet');
+  if(mood!=null && mood<0.4) reasons.push('Low energy, sleep or motivation on the last check-in');
+  if(lastAct>=3 && lastAct<99) reasons.push('Quiet for '+lastAct+' days');
+  if(createdDays<7) return { score, label:'New', cls:'w', reasons, logDays, sessions, planDays, ck, lastAct, isNew:true };
+  const label=score>=70?'On track':score>=40?'Slipping':'At risk';
+  return { score, label, cls:score>=70?'g':score>=40?'a':'red', reasons, logDays, sessions, planDays, ck, lastAct };
+}
+const healthChip=h=>h.score==null?'':`<span class="cp ${h.cls==='g'?'':h.cls}" style="${h.cls==='g'?'color:#3FB950;border-color:rgba(63,185,80,.4)':h.cls==='a'?'color:#D29922;border-color:rgba(210,153,34,.4)':''}">${h.label.toUpperCase()} ${h.score}</span>`;
+const reviewKey=(uid,wk)=>uid+':'+wk;
+function pendingCheckins(){
+  const out=[]; C.forEach(c=>{ const ck=latestCheckin(INTEL[c.user_id]); if(ck && ck.week && !REVIEWED[reviewKey(c.user_id,ck.week)]) out.push({c,ck}); });
+  return out.sort((a,b)=>String(b.ck.submittedAt).localeCompare(String(a.ck.submittedAt)));
+}
+async function saveReviewed(){ try{ await db.kvSet(ME.id,'hq:reviewed',REVIEWED); }catch(e){} }
+const toKg=(w,u)=>u==='imperial'?w/2.2046:w;
+function proposeMacros(c, d){
+  const cks=checkinsOf(d).filter(x=>x.weight>0), tg=d.targets||null, pr=d.profile||{};
+  if(!tg || !tg.calories) return { none:'They have not set daily targets in the app yet.' };
+  if(cks.length<2) return { none:'Needs two weekly check-ins with a weight before a change can be suggested.' };
+  const a=cks[cks.length-2], b=cks[cks.length-1];
+  const wks=Math.max(1,(new Date(b.date||b.week)-new Date(a.date||a.week))/(7*864e5)), w1=toKg(a.weight,a.units), w2=toKg(b.weight,b.units);
+  const pct=((w2-w1)/w1*100)/wks, goal=pr.goal||'maintain';
+  if((b.daysLogged||0)<4) return { none:'They only logged food on '+(b.daysLogged||0)+' days last week, so the numbers are not reliable. Nudge logging first.' };
+  let dir=0, why='';
+  const rate=(Math.abs(pct)<0.05?'barely changing':(pct<0?'down ':'up ')+Math.abs(pct).toFixed(1)+'% of bodyweight a week');
+  if(goal==='fatloss'){ if(pct>-0.3){ dir=-1; why='Weight is '+rate+', slower than a steady fat loss.'; } else if(pct<-1.2){ dir=1; why='Weight is '+rate+', faster than is sensible.'; } }
+  else if(goal==='musclegain'){ if(pct<0.05){ dir=1; why='Weight is '+rate+', too slow to build on.'; } else if(pct>0.5){ dir=-1; why='Weight is '+rate+', faster than lean gain.'; } }
+  else { if(pct>0.3){ dir=-1; why='Weight is '+rate+' while the goal is to hold steady.'; } else if(pct<-0.3){ dir=1; why='Weight is '+rate+' while the goal is to hold steady.'; } }
+  if(!dir) return { none:'Weight is '+rate+', which suits their goal. No change needed.', ok:true };
+  const delta=dir*Math.max(100, Math.round(tg.calories*0.05/50)*50), to={ calories:tg.calories+delta, protein:tg.protein };
+  to.carbs=Math.max(0,Math.round((tg.carbs||0)+0.75*delta/4)); to.fat=Math.max(20,Math.round((tg.fat||0)+0.25*delta/9));
+  return { from:{calories:tg.calories,protein:tg.protein,carbs:tg.carbs,fat:tg.fat}, to, delta, why };
+}
+async function queueMacro(c, prop){
+  const nm=(c.display_name||'').split(' ')[0]||'there';
+  const body='Hey '+nm+', small tweak to your targets this week. '+prop.why.replace(/\.$/,'')+', so we are '+(prop.delta>0?'adding':'trimming')+' about '+Math.abs(prop.delta)+' calories: now '+prop.to.calories+' kcal, protein stays at '+prop.to.protein+'g, carbs '+prop.to.carbs+'g, fat '+prop.to.fat+'g. It updates in your app. Give it two weeks and tell me how you feel.';
+  Q=(await db.insert('queue',[{kind:'reminder',title:'Macro change',body,client_id:c.user_id,status:'draft',meta:{macro:prop.to}}])).concat(Q);
+  setBadge();
+}
+async function draftCheckinReply(c, ck, d){
+  const intake=(d&&d.intake)||{}, style=intake.style||'balanced', nm=(c.display_name||'').split(' ')[0]||'there';
+  const flag=MEDICAL.test([ck.win,ck.struggle,ck.question].join(' '));
+  const j=await aiJSON('You are the coach replying to a client\'s weekly check-in. Client first name: '+nm+'. Coaching style they asked for: '+style+'.\nTheir check-in: weight '+(ck.weight||'not given')+', energy '+ck.energy+'/5, sleep '+ck.sleep+'/5, stress '+ck.stress+'/5, motivation '+ck.motivation+'/5. Logged food '+(ck.daysLogged||0)+'/7 days, trained '+(ck.sessions||0)+' sessions. Biggest win: "'+(ck.win||'')+'". What got in the way: "'+(ck.struggle||'')+'". Their question: "'+(ck.question||'')+'".\nWrite the reply in under 90 words, in a human coach voice: name one specific thing they did well, answer their question directly if they asked one, give one clear thing to focus on next week. No clichés, no emoji, no promises about results. '+(flag?'They mention pain, illness or health. Do not give medical advice; say you will talk to them about it personally.':'')+'\nReturn JSON only: {"text":"..."}',900);
+  const body=String(j.text||'').trim(); if(!body) throw new Error('The AI did not write a reply. Try again.');
+  Q=(await db.insert('queue',[{kind:'reminder',title:'Check-in reply',body,client_id:c.user_id,status:'draft',meta:{checkin:ck.week}}])).concat(Q); setBadge(); return flag;
+}
+async function photoLinks(rows){
+  const out=[]; for(const r of rows){ let url='';
+    if(r.data) url=r.data; else if(r.path && !DEMO){ try{ const {data}=await sb.storage.from('progress').createSignedUrl(r.path,3600); url=(data&&data.signedUrl)||''; }catch(e){} }
+    else if(r.demo) url=r.demo;
+    if(url) out.push({ url, d:r.d, pose:r.pose }); }
+  return out;
+}
+function sparkSvg(vals){
+  if(vals.length<2) return ''; const mn=Math.min(...vals), mx=Math.max(...vals), sp=(mx-mn)||1, xy=vals.map((v,i)=>[8+i*(384/(vals.length-1)),48-((v-mn)/sp)*38]);
+  return `<svg viewBox="0 0 400 56" width="100%" height="56"><polyline fill="none" stroke="var(--red)" stroke-width="2.5" points="${xy.map(p=>p.join(',')).join(' ')}"/>${xy.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="var(--red)"/>`).join('')}</svg>`;
+}
+function intakeHTML(i){
+  if(!i) return '<div class="help">They have not filled in their intake yet.</div>';
+  const row=(l,v)=>v?`<div style="margin:8px 0"><div style="font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em">${l}</div><div style="font-size:14px;white-space:pre-wrap">${esc(v)}</div></div>`:'';
+  return row('Goal',i.goal)+row('Why now',i.why)+row('Training history',i.history)+row('Tried before',i.tried)+row('Injuries and limits',i.injury)+row('Their week',i.schedule)+row('Food',i.food)+row('Coaching style',i.style)+row('Anything else',i.extra);
+}
+function checkinHTML(ck){
+  const bar=(l,v)=>`<span class="pill" style="margin:2px 4px 2px 0">${l} ${v||'-'}/5</span>`;
+  const flag=MEDICAL.test([ck.win,ck.struggle,ck.question].join(' '));
+  return `${flag?'<div class="help" style="border:1px solid var(--red);border-radius:10px;padding:9px 11px;margin-bottom:10px"><b style="color:var(--red)">Mentions pain, illness or health.</b> Reply to this one yourself.</div>':''}
+    <div class="help">Week ending ${esc(ck.week)} · weight ${ck.weight?esc(ck.weight)+(ck.units==='imperial'?' lb':' kg'):'not given'}${ck.waist?' · waist '+esc(ck.waist):''} · food logged ${ck.daysLogged||0}/7 days · ${ck.sessions||0} sessions</div>
+    <div style="margin:8px 0">${bar('Energy',ck.energy)}${bar('Sleep',ck.sleep)}${bar('Stress',ck.stress)}${bar('Motivation',ck.motivation)}</div>
+    ${ck.win?`<div style="margin:8px 0"><b style="font-size:12px;color:var(--dim)">WIN</b><div>${esc(ck.win)}</div></div>`:''}
+    ${ck.struggle?`<div style="margin:8px 0"><b style="font-size:12px;color:var(--dim)">GOT IN THE WAY</b><div>${esc(ck.struggle)}</div></div>`:''}
+    ${ck.question?`<div style="margin:8px 0"><b style="font-size:12px;color:var(--dim)">THEIR QUESTION</b><div>${esc(ck.question)}</div></div>`:''}`;
+}
+async function checkinSheet(c, ck){
+  const d=INTEL[c.user_id]||{}; const prop=canHealth()?proposeMacros(c,d):{none:'You do not have access to health data.'};
+  const photos=canHealth()&&(d.intake?d.intake.photosOk!==false:true)&&ck.photos&&ck.photos.length? await photoLinks(ck.photos.map(p=>String(p).startsWith('local:')?{}:{path:p,demo:p.startsWith('http')||p.startsWith('data:')?p:''})) : [];
+  sheet('Check-in · '+(c.display_name||c.email||'Client'), `${checkinHTML(ck)}
+    ${photos.length?`<div style="display:flex;gap:8px;overflow-x:auto;margin:10px 0">${photos.map(p=>`<img src="${esc(p.url)}" alt="" style="height:160px;border-radius:10px">`).join('')}</div>`:''}
+    <div class="sec">Suggested macro change</div>
+    ${prop.none?`<div class="help">${esc(prop.none)}</div>`:`<div class="help"><b>${prop.from.calories} → ${prop.to.calories} kcal</b> (protein ${prop.to.protein}g, carbs ${prop.to.carbs}g, fat ${prop.to.fat}g). ${esc(prop.why)}</div><button class="btn" id="ckMacro">Draft this change for approval</button>`}
+    <div class="row" style="margin-top:14px"><button class="btn pri" id="ckReply">Draft a reply</button><button class="btn" id="ckDone">Mark reviewed</button></div>
+    <div class="help" style="margin-top:8px">Drafts wait on Today for your approval. Nothing reaches the client until you send it.</div>`, b=>{
+    const markDone=async()=>{ REVIEWED[reviewKey(c.user_id,ck.week)]=new Date().toISOString(); await saveReviewed(); };
+    $('#ckReply',b).onclick=()=>working($('#ckReply',b),'Drafting...',async()=>{ const flag=await draftCheckinReply(c,ck,d); await markDone(); closeSheet(); render(); toast(flag?'Drafted. It mentions health, so edit it carefully.':'Drafted. Approve it on Today.'); });
+    $('#ckDone',b).onclick=()=>working($('#ckDone',b),'Saving...',async()=>{ await markDone(); closeSheet(); render(); toast('Marked reviewed'); });
+    const m=$('#ckMacro',b); if(m) m.onclick=()=>working(m,'Drafting...',async()=>{ await queueMacro(c,prop); closeSheet(); render(); toast('Drafted. Approve it on Today. The targets change when you mark it sent.'); });
+  });
+}
+async function intakeSheet(c){
+  const d=INTEL[c.user_id]||await (async()=>{ const m=await intelLoad([c]); return m[c.user_id]||{}; })();
+  sheet('About '+(c.display_name||'client'), intakeHTML(d.intake));
+}
+async function progressSheet(c){
+  const d=INTEL[c.user_id]||(await intelLoad([c],8))[c.user_id]||{};
+  const cks=checkinsOf(d).filter(x=>x.weight>0), weights=cks.map(x=>x.weight), meas=(d.measurements||[]).filter(m=>m.waist>0).sort((a,b)=>a.d<b.d?-1:1);
+  const ok=d.intake?d.intake.photosOk!==false:true; const rows=(d.photos||[]).slice().sort((a,b)=>a.d<b.d?-1:1);
+  const links=ok&&canHealth()? await photoLinks(rows.length>6?[...rows.slice(0,3),...rows.slice(-3)]:rows) : [];
+  sheet('Progress · '+(c.display_name||'client'), `
+    <div class="sec">Weight at check-ins</div>${weights.length>1?sparkSvg(weights)+`<div class="help">${weights[0]} → ${weights[weights.length-1]} over ${weights.length} check-ins</div>`:'<div class="help">Needs two check-ins.</div>'}
+    <div class="sec">Waist</div>${meas.length>1?sparkSvg(meas.map(m=>m.waist))+`<div class="help">${meas[0].waist} cm → ${meas[meas.length-1].waist} cm</div>`:'<div class="help">Not enough entries yet.</div>'}
+    <div class="sec">Photos</div>${!ok?'<div class="help">They chose not to share progress photos.</div>':links.length?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">${links.map(p=>`<div><img src="${esc(p.url)}" alt="" style="width:100%;border-radius:10px"><div class="help" style="margin-top:2px">${esc(p.d)} · ${esc(p.pose||'')}</div></div>`).join('')}</div>`:'<div class="help">No photos yet.</div>'}`);
+}
+async function monthlyReportSheet(c){
+  const m=await intelLoad([c],31), d=m[c.user_id]||{}; const cks=checkinsOf(d);
+  const days=entryKeys(31).filter(k=>Array.isArray(d[k])&&d[k].length).length;
+  const logs=d.trainingLogs||{}, since=Date.now()-30*864e5; let sess=0; Object.values(logs).forEach(l=>{ if(l&&l.done&&l.completedAt&&new Date(l.completedAt).getTime()>=since) sess++; });
+  const w=cks.filter(x=>x.weight>0); const wTxt=w.length>1?(w[0].weight+' to '+w[w.length-1].weight+(w[0].units==='imperial'?' lb':' kg')):'not enough check-ins';
+  const stats={ foodDays:days, sessions:sess, checkins:cks.length, weight:wTxt, avgEnergy:cks.length?(cks.reduce((a,x)=>a+(x.energy||0),0)/cks.length).toFixed(1):null };
+  sheet('Monthly report · '+(c.display_name||'client'), `<div class="stats" style="grid-template-columns:repeat(3,1fr)"><div class="stat"><b>${days}</b><span>days food logged</span></div><div class="stat"><b>${sess}</b><span>sessions</span></div><div class="stat"><b>${cks.length}</b><span>check-ins</span></div></div>
+    <div class="help" style="margin:10px 0">Weight: ${esc(wTxt)}</div><div id="mrBody" class="help">Writing a short summary...</div><div class="row" style="margin-top:12px"><button class="btn" id="mrCopy" style="display:none">Copy</button><button class="btn pri" id="mrSend" style="display:none">Draft to send them</button></div>`, b=>{
+    let text='';
+    aiJSON('Write a short monthly progress note from a coach to a client named '+((c.display_name||'').split(' ')[0]||'there')+', under 110 words, warm and specific, no clichés, no emoji. Use only these facts: food logged on '+days+' days of the last 31, '+sess+' training sessions, '+cks.length+' weekly check-ins, weight '+wTxt+', average energy '+(stats.avgEnergy||'n/a')+' out of 5. Say one thing that went well, one thing to improve next month, and one clear focus. Do not invent numbers. Return JSON only: {"text":"..."}',900)
+      .then(j=>{ text=String(j.text||'').trim(); $('#mrBody',b).innerHTML='<textarea class="ta" id="mrText" rows="7">'+esc(text)+'</textarea>'; $('#mrCopy',b).style.display=''; $('#mrSend',b).style.display=''; })
+      .catch(e=>{ $('#mrBody',b).textContent=String(e.message||e); });
+    $('#mrCopy',b).onclick=async()=>{ await copy($('#mrText',b).value); toast('Copied'); };
+    $('#mrSend',b).onclick=()=>working($('#mrSend',b),'Drafting...',async()=>{ Q=(await db.insert('queue',[{kind:'reminder',title:'Monthly report',body:$('#mrText',b).value.trim(),client_id:c.user_id,status:'draft',meta:{}}])).concat(Q); setBadge(); closeSheet(); render(); toast('Drafted. Approve it on Today.'); });
+  });
+}
+function intelBlock(c, box){
+  const d=INTEL[c.user_id]; const h=healthOf(c,d); const ck=latestCheckin(d);
+  const pend=ck&&!REVIEWED[reviewKey(c.user_id,ck.week)];
+  box.innerHTML=`<div class="sec">How they are doing ${healthChip(h)}</div>
+    <div class="help">${h.reasons.map(esc).join('<br>')}</div>
+    <div class="row" style="margin:10px 0 16px">
+      ${ck?`<button class="btn ${pend?'pri':''}" id="ciCheck">${pend?'Review check-in':'Last check-in'}</button>`:''}
+      ${canHealth()?'<button class="btn" id="ciProg">Progress and photos</button>':''}
+      ${canHealth()&&d&&d.intake?'<button class="btn" id="ciIntake">Intake answers</button>':''}
+      <button class="btn" id="ciMonth">Monthly report</button>
+      <button class="btn" id="ciSnip">Saved replies</button></div>`;
+  const on=(id,fn)=>{ const e=box.querySelector('#'+id); if(e) e.onclick=fn; };
+  on('ciCheck',()=>{ closeSheet(); checkinSheet(c,ck); }); on('ciProg',()=>{ closeSheet(); progressSheet(c); }); on('ciIntake',()=>{ closeSheet(); intakeSheet(c); });
+  on('ciMonth',()=>{ closeSheet(); monthlyReportSheet(c); }); on('ciSnip',()=>{ closeSheet(); snippetPicker(c); });
+}
+// ---------- Saved replies ----------
+const snipText=(t,c)=>String(t||'').replace(/\{name\}/gi,((c&&c.display_name)||'').split(' ')[0]||'there');
+function snippetPicker(c){
+  sheet('Saved replies', SNIPS.length? SNIPS.map(s=>`<button class="item" data-sn="${s.id}" style="text-align:left"><div><div class="t">${esc(s.title)}</div><div class="s">${esc(s.text.slice(0,90))}</div></div></button>`).join('') : '<div class="empty">No saved replies yet. Add some in Settings.</div>', b=>{
+    $$('[data-sn]',b).forEach(x=>x.onclick=async()=>{ const s=SNIPS.find(y=>y.id===x.dataset.sn); Q=(await db.insert('queue',[{kind:'reminder',title:s.title,body:snipText(s.text,c),client_id:c.user_id,status:'draft',meta:{}}])).concat(Q); setBadge(); closeSheet(); render(); toast('Drafted. Approve it on Today.'); });
+  });
+}
+function snippetsSheet(){
+  const paint=b=>{ $('#snList',b).innerHTML = SNIPS.length? SNIPS.map(s=>`<div style="border:1px solid var(--line2);border-radius:12px;padding:10px;margin-bottom:8px;background:var(--elev)"><b style="font-size:13px">${esc(s.title)}</b><div style="font-size:13px;color:var(--dim);margin:4px 0 6px;white-space:pre-wrap">${esc(s.text)}</div><button class="btn sm ghost" data-sd="${s.id}">Delete</button></div>`).join('') : '<div class="help">None yet.</div>'; $$('[data-sd]',b).forEach(x=>x.onclick=async()=>{ SNIPS=SNIPS.filter(y=>y.id!==x.dataset.sd); await db.kvSet(ME.id,'hq:snippets',SNIPS); paint(b); }); };
+  sheet('Saved replies', `<div class="help">Answers you give again and again. Use {name} for the client's first name. They also appear in the Inbox reply box.</div><div id="snList"></div>
+    <div class="fld"><label>Short title</label><input class="inp" id="snT" placeholder="e.g. Pricing, Missed a session"></div>
+    <div class="fld"><label>Reply</label><textarea class="ta" id="snX" rows="4" placeholder="Hey {name}, ..."></textarea></div><button class="btn pri" id="snAdd" style="width:100%">Save reply</button>
+    <button class="btn" id="snAI" style="width:100%;margin-top:8px">Suggest 5 for me</button>`, b=>{
+    paint(b);
+    $('#snAdd',b).onclick=async()=>{ const t=$('#snT',b).value.trim(), x=$('#snX',b).value.trim(); if(!t||!x){ toast('Add a title and the reply'); return; } SNIPS.push({id:uid(),title:t,text:x}); await db.kvSet(ME.id,'hq:snippets',SNIPS); $('#snT',b).value=''; $('#snX',b).value=''; paint(b); toast('Saved'); };
+    $('#snAI',b).onclick=()=>working($('#snAI',b),'Writing...',async()=>{ const j=await aiJSON('I am an online fitness coach ('+(S.niche||'general fitness')+'). Offer: '+(S.offer||'online coaching')+'. Write 5 reusable reply templates for things clients and leads ask all the time (what is included, how check-ins work, missed a session, plateau, how to log food). Each under 60 words, human, use {name} for their first name, no prices unless I gave one: '+(S.price||'none given')+'. Return JSON only: {"items":[{"title":"","text":""}]}',1800);
+      (j.items||[]).slice(0,5).forEach(s=>{ if(s.title&&s.text) SNIPS.push({id:uid(),title:String(s.title).slice(0,40),text:String(s.text)}); }); await db.kvSet(ME.id,'hq:snippets',SNIPS); paint(b); toast('Added. Edit or delete any you do not like.'); });
   });
 }
 
@@ -1425,6 +1933,7 @@ const NOTIF_EVENTS = [
   ['risky_message_flagged','Risky message flagged'],
   ['post_published','Post or story went live'],
   ['post_failed','Post failed to publish'],
+  ['weekly_report','Weekly Instagram report is ready'],
   ['daily_summary','Daily summary at 7:30am'],
 ];
 
@@ -1482,6 +1991,8 @@ async function notificationsSheet(){
       ${status==='on'?'Notifications are on for this device':status==='denied'?'Blocked — enable in your browser settings':'Enable notifications on this device'}
     </button>
     <div class="help hidden" id="pushWarn" style="color:var(--red);font-size:13px;"></div>
+    <details style="margin:0 0 14px;border:1px solid var(--line2);border-radius:12px;padding:10px 12px"><summary style="cursor:pointer;font-weight:600">Not getting alerts? Set up your phone</summary>
+      <ol class="help" style="padding-left:18px;margin:10px 0 0;line-height:1.6"><li>Open HQ in <b>Safari</b> on your iPhone (alerts do not work from Chrome on iPhone).</li><li>Tap the Share button, then <b>Add to Home Screen</b>, then <b>Add</b>.</li><li>Open HQ from the new home screen icon, not from Safari.</li><li>Come back here and tap <b>Enable notifications on this device</b>, then Allow.</li><li>If nothing arrives: iPhone Settings, Notifications, Redline HQ, switch it on, and check no Focus mode is active.</li></ol></details>
     ${status==='on'?'<button class="btn" id="pushTest" style="width:100%;margin:-4px 0 14px;">Send me a test notification</button>':''}
     ${NOTIF_EVENTS.map(([ev,label])=>{
       const p = prefs[ev] || {push:true, email:false};
@@ -1503,8 +2014,9 @@ async function notificationsSheet(){
     <div class="xr"><div>You reply, or change their plan<small>Straight away</small></div><span class="cp w">AUTO</span></div>
     <div class="xr"><div>Good-morning check-in prompt<small>At their wake-up time</small></div><span class="cp w">AUTO</span></div>
     <div class="xr"><div>Session started but not finished<small>8pm their time</small></div><span class="cp w">AUTO</span></div>
-    <div class="xr"><div>Meal reminders<small>9am, 12pm, 6pm, only if nothing is logged</small></div><span class="cp w">AUTO</span></div>
+    <div class="xr"><div>Meal reminders<small>Learned from when each client usually eats, only if nothing is logged</small></div><span class="cp w">AUTO</span></div>
     <div class="xr"><div>Three days without training<small>5pm, once per gap</small></div><span class="cp w">AUTO</span></div>
+    <div class="xr"><div>Weekly check-in reminder<small>Sunday evening, only if not done</small></div><span class="cp w">AUTO</span></div>
     <div class="help">Each client can switch these off for themselves in their app. Nothing is sent in the middle of the night.</div>
     <button class="btn pri" id="notifSave" style="width:100%">Save</button>
   `, b=>{
@@ -1671,6 +2183,7 @@ async function clientSheet(c){
       <div class="stat"><b>${plan?(done+'/'+(plan.days||[]).length):'-'}</b><span>sessions done</span></div>
       <div class="stat"><b>${Math.round(eaten)}</b><span>kcal today${targets?(' of '+targets.calories):''}</span></div></div>
     ${targets?`<div class="help">Protein today: ${Math.round(prot)}g of ${targets.protein}g</div>`:''}
+    <div id="intelBox"></div>
     <div class="fld"><label>Level</label><select class="sel" id="cLevel"><option value="app" ${c.level==='app'?'selected':''}>App member</option><option value="pro" ${c.level==='pro'?'selected':''}>Pro membership</option><option value="coaching" ${c.level==='coaching'?'selected':''}>1:1 coaching</option></select></div>
     <div class="fld"><label>Status</label><select class="sel" id="cStatus">${['active','paused','ended'].map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
     <div class="fld"><label>Your private notes</label><textarea class="ta" id="cNotes" rows="3">${esc(c.coach_notes||'')}</textarea></div>
@@ -1695,6 +2208,7 @@ async function clientSheet(c){
       });
     };
     rebind();
+    (async()=>{ try{ if(!INTEL[c.user_id]) INTEL[c.user_id]=(await intelLoad([c]))[c.user_id]||{}; const bx=$('#intelBox',b); if(bx) intelBlock(c,bx); }catch(e){} })();
     $('#cSave',b).onclick = async ()=>{ const p={level:$('#cLevel',b).value,status:$('#cStatus',b).value,coach_notes:$('#cNotes',b).value.trim()}; Object.assign(c,p); await db.update('clients','user_id',c.user_id,p); renderClients(); toast('Saved'); };
     $('#cMsg',b).onclick = ()=>working($('#cMsg',b),'Drafting...',async()=>{
       const j = await aiJSON('Write one short check-in or motivation message from the coach to a client. Keep it human and specific, under 50 words, no clichés. Client: '+(c.display_name||'client')+'. This week: '+(plan?('week '+plan.weekNumber+', '+done+' of '+(plan.days||[]).length+' sessions done'):'no plan yet')+'. '+(targets?('Calories today '+Math.round(eaten)+' of '+targets.calories+'.'):'')+' Coach notes: '+(c.coach_notes||'none')+'\nReturn JSON only: {"text":""}', 1500);
@@ -1873,6 +2387,7 @@ document.addEventListener('click', async e=>{
       await setQ(q,{status:'done',sent_at:new Date().toISOString()});
       const l=leadOf(q.lead_id); if(l && q.kind==='dm') await setLead(l,{stage:l.stage==='new'?'contacted':l.stage,last_touch:new Date().toISOString(),next_touch:addDays(3)});
       // any approved message tied to a client/lead also lands in the Inbox thread as sent
+      if(q.meta && q.meta.macro && q.client_id){ try{ const old=(await db.kvGet(q.client_id,'targets'))||{}; await db.kvSet(q.client_id,'targets',Object.assign({},old,q.meta.macro)); if(INTEL[q.client_id]) INTEL[q.client_id].targets=Object.assign({},old,q.meta.macro); }catch(e){ toast('Sent, but the targets could not be changed. Edit them by hand.'); } }
       if(q.client_id || q.lead_id){
         await db.insert('messages',[{ client_id:q.client_id||null, lead_id:q.lead_id||null, source:q.client_id?'app':'instagram', direction:'out', author:'coach', body:q.body }]);
         MSGS = await db.list('messages');
@@ -1883,6 +2398,7 @@ document.addEventListener('click', async e=>{
     render(); return;
   }
   if(t.dataset.lead){ const l=leadOf(t.dataset.lead); if(l) leadSheet(l); return; }
+  if(t.dataset.ckrev){ const c=clientOf(t.dataset.ckrev); const ck=c&&latestCheckin(INTEL[c.user_id]); if(c&&ck) checkinSheet(c,ck); return; }
   if(t.dataset.client){ const c=clientOf(t.dataset.client); if(c) clientSheet(c); return; }
   if(t.dataset.convo){ if(DESK() && TAB==='inbox'){ INBOX_SEL=t.dataset.convo; renderInbox(); } else conversationThreadSheet(t.dataset.convo); return; }
   if(t.dataset.member){ memberSheet(t.dataset.member); return; }
@@ -1894,6 +2410,9 @@ document.addEventListener('click', async e=>{
   if(t.id==='dmFollow') return working(t,'Drafting...',async()=>{ const n=await draftDMs('follow'); if(n){ toast(n+' drafted. Approve them on Today.'); go('today'); } });
   if(t.id==='igOpenPlan' || t.closest('[data-openplan]')) return planSheet();
   if(t.id==='igOpenPost') return igPostSheet();
+  if(t.dataset.film){ const q=Q.find(x=>x.id===t.dataset.film); if(q) igPostSheet({manual:true, topic:((q.title?q.title+'. ':'')+String(q.body||'')).replace(/\s+/g,' ').slice(0,280)}); return; }
+  if(t.id==='igOpenLib') return librarySheet();
+  if(t.id==='igOpenRep') return reportSheet();
   if(t.id==='planWeekBtn') return working(t,'Planning...',async()=>{ const n=await planWeek(); toast(n+' ideas drafted.'); renderContent(); setBadge(); });
   if(t.id==='ideaBtn'){ sheet('One reel idea',`<div class="fld"><label>What is it about?</label><input class="inp" id="ideaTopic" placeholder="e.g. why most people stall on bench"></div><button class="btn pri" id="ideaGo" style="width:100%">Draft it</button>`,b=>{
       $('#ideaGo',b).onclick=()=>working($('#ideaGo',b),'Drafting...',async()=>{ const tp=$('#ideaTopic',b).value.trim(); if(!tp){ toast('Add a topic'); return; } await oneIdea(tp); closeSheet(); renderContent(); setBadge(); toast('Drafted'); }); }); return; }
@@ -1940,6 +2459,24 @@ function seedDemo(){
   localStorage.setItem(LS+'kv:demo-client-1:entries:'+dayKey(),JSON.stringify([{name:'Eggs',calories:520,protein:34}]));
   localStorage.setItem(LS+'kv:demo-owner:hq:settings',JSON.stringify({handle:'@redlinetraining',niche:'hybrid athletes who want to look good and race well',offer:'12 week online coaching with the Redline app',price:'$X a month',dmCap:20}));
 
+  // client app data the HQ reads: check-ins, intake, food logs, sessions, photos
+  const K=(u,k,v)=>localStorage.setItem(LS+'kv:'+u+':'+k,JSON.stringify(v));
+  const svgPhoto=(c)=>'data:image/svg+xml;utf8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="'+c+'"/><circle cx="150" cy="120" r="46" fill="#00000033"/><rect x="95" y="175" width="110" height="190" rx="40" fill="#00000033"/></svg>');
+  const sk=sundayKeys(3).map(x=>x.slice(8));
+  K('demo-client-1','profile',{goal:'fatloss',units:'metric',weightKg:82});
+  K('demo-client-1','targets',{calories:2400,protein:200,carbs:240,fat:70});
+  K('demo-client-1','intake',{goal:'Get to 78kg and bench 100kg',why:'Wedding in March',history:'Lifting 3 years, some running',tried:'Keto, did not stick',injury:'Left shoulder gets cranky on heavy pressing',schedule:'Works 8-5, trains before work Mon/Wed/Fri/Sat',food:'No dairy',style:'direct',extra:'',photosOk:true});
+  K('demo-client-1','checkin:'+sk[1],{week:sk[1],date:sk[1],units:'metric',weight:82.0,energy:3,sleep:3,stress:3,motivation:4,win:'Hit all four sessions',struggle:'',question:'',daysLogged:6,sessions:4,avgCal:2380,avgProtein:190,photos:[],submittedAt:new Date(Date.now()-9*864e5).toISOString(),reviewed:false});
+  K('demo-client-1','checkin:'+sk[0],{week:sk[0],date:sk[0],units:'metric',weight:81.9,waist:86,energy:3,sleep:2,stress:4,motivation:3,win:'Got my steps up every day',struggle:'Work travel threw out my meals',question:'Should I add cardio on rest days?',daysLogged:6,sessions:3,avgCal:2410,avgProtein:185,photos:[svgPhoto('#7a8aa0'),svgPhoto('#8aa07a')],submittedAt:new Date(Date.now()-2*864e5).toISOString(),reviewed:false});
+  K('demo-client-1','measurements',[{d:dayKey(new Date(Date.now()-28*864e5)),waist:88},{d:dayKey(new Date(Date.now()-14*864e5)),waist:87},{d:dayKey(new Date(Date.now()-2*864e5)),waist:86}]);
+  for(let i=1;i<=6;i++) K('demo-client-1','entries:'+dayKey(new Date(Date.now()-i*864e5)),[{name:'Meal',calories:2300,protein:180}]);
+  K('demo-client-1','trainingLogs',{'w3:0':{done:true,completedAt:new Date(Date.now()-1*864e5).toISOString()},'w2:0':{done:true,completedAt:new Date(Date.now()-3*864e5).toISOString()},'w2:1':{done:true,completedAt:new Date(Date.now()-5*864e5).toISOString()}});
+  K('demo-client-3','profile',{goal:'musclegain',units:'metric'});
+  K('demo-client-3','targets',{calories:3000,protein:180,carbs:380,fat:80});
+  wr('clients', rd('clients').concat([{user_id:'demo-client-3',email:'priya@example.com',display_name:'Priya',level:'pro',status:'active',coach_notes:'',created_at:new Date(Date.now()-30*864e5).toISOString()}]));
+  wr('ig_library',[{id:'lib1',owner:'demo-owner',url:svgPhoto('#444'),kind:'photo',name:'Deadlift setup',description:'Me setting up a heavy deadlift, chalk on hands, gym floor',times_used:0,created_at:now}]);
+  localStorage.setItem(LS+'kv:demo-owner:hq:snippets',JSON.stringify([{id:'sn1',title:'Missed a session',text:'Hey {name}, no stress about the missed session. Do the next one as planned and we will not try to catch up. How is your week looking?'}]));
+
   wr('messages',[
     {id:'m1',client_id:'demo-client-1',source:'app',direction:'in',author:'client',body:'My left shoulder has been sore on pressing since Monday',flagged:'This mentions something that needs a personal reply — health, pain, billing or similar.',created_at:addDays(-0)},
     {id:'m2',lead_id:'l1',source:'instagram',direction:'in',author:'client',body:'Hey! Do you offer online coaching? What does it include?',created_at:addDays(-0)}
@@ -1966,6 +2503,7 @@ async function start(){
     return;
   }
   setupVoice(); go('today'); startLive();
+  intelRefresh(true).then(ok=>{ if(ok && !busyTyping()) render(); });
   const nm = ownerFirstName(); if($('#meName')){ $('#meName').textContent=nm; $('#meAv').textContent=nm.charAt(0).toUpperCase(); $('#meRole').textContent = IS_OWNER?'Owner':'Team'; }
 }
 async function loadSched(){ try{ return await planRows(); }catch(e){ return []; } }
@@ -1973,6 +2511,7 @@ async function loadAll(){
   const r = await Promise.all([db.list('queue'),db.list('leads'),db.list('clients'),db.list('staff'),db.list('messages')]);
   Q=r[0]; L=r[1]; C=r[2]; STAFF=r[3]; MSGS=r[4];
   S = (await db.kvGet(ME.id,'hq:settings')) || {};
+  try{ SNIPS = (await db.kvGet(ME.id,'hq:snippets')) || []; REVIEWED = (await db.kvGet(ME.id,'hq:reviewed')) || {}; }catch(e){ SNIPS=[]; REVIEWED={}; }
   SCHED = await loadSched();
 
   // the owner's own access is implicitly "everything" — not stored as rows
@@ -2027,6 +2566,7 @@ async function liveTick(){
 function startLive(){
   if(startLive.on) return; startLive.on=true;
   setInterval(liveTick, 4000);
+  setInterval(()=>{ if(document.hidden||busyTyping()) return; intelRefresh(false).then(ok=>{ if(ok && !busyTyping() && (TAB==='today'||TAB==='clients')) render(); }); }, 60000);
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) liveTick(); });
 }
 
