@@ -1,5 +1,5 @@
 // Redline HQ service worker — enables Add to Home Screen and push notifications.
-const CACHE_VERSION = 'hq-v8';
+const CACHE_VERSION = 'hq-v11';
 const SHELL = ['./hq.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './favicon.ico'];
 
 self.addEventListener('install', (e) => {

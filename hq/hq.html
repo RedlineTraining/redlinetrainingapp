@@ -177,7 +177,16 @@
   .thumb::before{content:'';position:absolute;right:-30px;top:-30px;width:130px;height:130px;border-radius:50%;border:2px solid rgba(232,48,42,.5);box-shadow:0 0 30px rgba(232,48,42,.35)}
   .thumb b{font-family:'Barlow Condensed',sans-serif;font-size:28px;line-height:.98;font-weight:700;position:relative;text-transform:uppercase}
   .nx{display:flex;justify-content:space-between;align-items:center;margin:12px 0 4px;font-size:12.5px;gap:8px}.nx span{color:var(--dim)}
+  .thumb.media{height:170px;padding:0;justify-content:center;align-items:center;background:#000}
+  .thumb.media::before{display:none}
+  .thumb.media img,.thumb.media video{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block}
+  .hud{overflow:hidden}
   .mini{display:block;margin-top:14px;position:relative;height:18px}
+  .mini b.nt{position:absolute;top:50%;transform:translate(-50%,-50%);width:3px;height:14px;border-radius:2px;background:var(--faint)}
+  .mini b.nt.ap{background:#e8e8ea}.mini b.nt.dr{background:var(--red);opacity:.6}.mini b.nt.fl{background:#ff5a52;box-shadow:0 0 6px #ff5a52}.mini b.nt.dn{background:#3a3d44}
+  .mini i{z-index:2}
+  .mini-t{position:relative;height:12px;margin-top:5px;font-family:var(--mono);font-size:9px;color:var(--faint)}
+  .mini-t span{position:absolute;transform:translateX(-50%);white-space:nowrap}
   .mini::before{content:'';position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line)}
   .mini i{position:absolute;top:50%;transform:translate(-50%,-50%);width:3px;height:16px;border-radius:2px;background:var(--red);box-shadow:0 0 8px var(--red)}
   .mini-l{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:6px}
@@ -648,13 +657,20 @@ function nextUpPanel(){
   const nowMs=Date.now();
   const up=SCHED.filter(r=>['draft','approved','posting'].includes(r.status)&&new Date(r.run_at).getTime()>=nowMs-3600000).sort((a,b)=>a.run_at<b.run_at?-1:1);
   const failed=SCHED.filter(r=>r.status==='failed').length, drafts=SCHED.filter(r=>r.status==='draft').length, sched=SCHED.filter(r=>r.status==='approved').length;
-  const h = new Date().getHours()+new Date().getMinutes()/60; const pos = Math.max(2,Math.min(98,(h-7)/14*100));
-  const bar = `<div class="mini"><i style="left:${pos.toFixed(0)}%"></i></div><div class="mini-l"><span>07:00</span><span>now</span><span>21:00</span></div>`;
+  const H0=6,H1=22, P=h=>Math.max(1.5,Math.min(98.5,(h-H0)/(H1-H0)*100));
+  const d0=new Date(); d0.setHours(0,0,0,0); const d1=d0.getTime()+864e5;
+  const today=SCHED.filter(r=>{const t=new Date(r.run_at).getTime();return t>=d0.getTime()&&t<d1&&r.status!=='rejected'}).sort((a,b)=>a.run_at<b.run_at?-1:1);
+  const hr=r=>{const d=new Date(r.run_at);return d.getHours()+d.getMinutes()/60};
+  const nowH=new Date().getHours()+new Date().getMinutes()/60;
+  const cls=r=>r.status==='failed'?'fl':r.status==='draft'?'dr':(r.status==='posted'||r.status==='published'||(hr(r)<nowH&&r.status!=='posting'))?'dn':'ap';
+  const notches=today.map(r=>`<b class="nt ${cls(r)}" style="left:${P(hr(r)).toFixed(1)}%" title="${esc(KIND_LABEL[r.kind]||'Post')}"></b>`).join('');
+  let lastX=-99; const tl=today.map(r=>{const x=P(hr(r)); if(x-lastX<9) return ''; lastX=x; return `<span style="left:${x.toFixed(1)}%">${new Date(r.run_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}).replace(' ','').toLowerCase()}</span>`}).join('');
+  const bar = `<div class="mini">${notches}<i style="left:${P(nowH).toFixed(1)}%"></i></div><div class="mini-t">${tl||'<span style="left:50%">nothing scheduled today</span>'}</div><div class="mini-l" style="position:relative"><span>6am</span><span style="position:absolute;left:${P(nowH).toFixed(1)}%;transform:translateX(-50%);color:var(--red)">now</span><span>10pm</span></div>`;
   const n=up[0];
   if(n){
     const vid=/video|reel/.test(n.kind);
-    const thumb = vid ? `<div class="thumb" style="padding:0;overflow:hidden"><video src="${esc(n.media_url)}" muted playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover"></video></div>`
-                      : `<div class="thumb" style="padding:0;background:#000 url('${esc(n.media_url)}') center/cover no-repeat"></div>`;
+    const thumb = vid ? `<div class="thumb media"><video src="${esc(n.media_url)}" muted playsinline preload="metadata"></video></div>`
+                      : `<div class="thumb media"><img src="${esc(n.media_url)}" alt=""></div>`;
     const chipTxt = failed ? failed+' FAILED' : n.status==='draft' ? 'NEEDS APPROVAL' : n.status==='posting' ? 'POSTING' : 'SCHEDULED';
     const when = new Date(n.run_at).toLocaleString([], {weekday:'short',hour:'numeric',minute:'2-digit'});
     return `<div class="hud"><div class="ph"><h3>Next up on Instagram</h3><span class="cp ${(failed||n.status==='draft')?'red':'w'}">${chipTxt}</span></div>
@@ -1034,6 +1050,48 @@ async function renderCTA(canvas, c){
   x.fillStyle='#8A8D93'; x.font='500 34px "Inter", Arial, sans-serif'; x.fillText(S.handle?(S.handle.startsWith('@')?S.handle:'@'+S.handle):'@redline.training', pad, H-260);
 }
 
+
+// ---------- App demo cards: a real screenshot of the client app inside a phone frame ----------
+let _demoScreens=null;
+async function demoScreens(){
+  if(_demoScreens) return _demoScreens;
+  try{ const r=await fetch('demo/screens.json?v='+Date.now()); _demoScreens=r.ok?await r.json():[]; }catch(e){ _demoScreens=[]; }
+  return _demoScreens;
+}
+const _imgCache={};
+function loadImg(url){ return _imgCache[url] || (_imgCache[url]=new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('Could not load the app screenshot ('+url+').')); i.src=url; })); }
+function rrect(x,px,py,w,h,r){ x.beginPath(); if(x.roundRect) x.roundRect(px,py,w,h,r); else x.rect(px,py,w,h); }
+// zoom 1 = whole screen width; the screenshot is cropped from the top to fit the frame height.
+function drawPhone(x, img, px, py, pw, ph, zoom){
+  x.save(); x.shadowColor='rgba(0,0,0,0.6)'; x.shadowBlur=60; x.shadowOffsetY=24;
+  rrect(x,px-16,py-16,pw+32,ph+32,78); x.fillStyle='#17181B'; x.fill(); x.restore();
+  rrect(x,px-16,py-16,pw+32,ph+32,78); x.strokeStyle='#3A3C42'; x.lineWidth=4; x.stroke();
+  x.save(); rrect(x,px,py,pw,ph,62); x.clip();
+  const top=Math.round(pw*0.09); x.fillStyle='#08090A'; x.fillRect(px,py,pw,ph);
+  const z=zoom||1, sw=img.naturalWidth/z, sh=Math.min(img.naturalHeight, (ph-top)*sw/pw), sx=(img.naturalWidth-sw)/2;
+  x.drawImage(img,sx,0,sw,sh,px,py+top,pw,ph-top);
+  x.restore();
+  rrect(x,px+pw/2-62,py+14,124,32,16); x.fillStyle='#000'; x.fill();
+}
+function demoBG(x,W,H,glow){
+  x.fillStyle='#08090A'; x.fillRect(0,0,W,H);
+  const g=x.createRadialGradient(W*0.5,H*0.78,0,W*0.5,H*0.78,W*0.95); g.addColorStop(0,'rgba(232,48,42,'+(glow||0.26)+')'); g.addColorStop(1,'rgba(232,48,42,0)'); x.fillStyle=g; x.fillRect(0,0,W,H);
+}
+function wrapText(x,t,font,max){ x.font=font; const w=String(t).split(/\s+/), out=[]; let l=''; for(const k of w){ const tt=l?l+' '+k:k; if(x.measureText(tt).width>max&&l){ out.push(l); l=k; } else l=tt; } if(l) out.push(l); return out; }
+async function renderDemoCard(canvas, d, story){
+  const W=1080,H=story?1920:1350; canvas.width=W; canvas.height=H; const x=canvas.getContext('2d');
+  try{ await document.fonts.load('700 100px "Barlow Condensed"'); }catch(e){}
+  const img=await loadImg(d.file); demoBG(x,W,H);
+  const pad=86, top=story?250:100, logo=await loadLogo(); if(logo) x.drawImage(logo,40,205,432,100,pad-12,top,372,86);
+  let size=story?132:118, lines; for(;size>=76;size-=6){ lines=wrapText(x,String(d.headline||'').toUpperCase(),'700 '+size+'px "Barlow Condensed", Impact, sans-serif',W-pad*2); if(lines.length<=3) break; }
+  x.fillStyle='#F5F5F5'; x.font='700 '+size+'px "Barlow Condensed", Impact, sans-serif'; x.textBaseline='alphabetic';
+  let y=top+86+size+16; for(const l of lines){ x.fillText(l,pad,y); y+=size*0.98; }
+  x.fillStyle='#E8302A'; x.fillRect(pad,y-size*0.4,120,8);
+  const py=y+(story?70:50), pw=story?700:600, ph=Math.round(pw*2.16);
+  drawPhone(x,img,(W-pw)/2,py,pw,ph,1);
+  const gr=x.createLinearGradient(0,H-260,0,H); gr.addColorStop(0,'rgba(8,9,10,0)'); gr.addColorStop(1,'rgba(8,9,10,0.92)'); x.fillStyle=gr; x.fillRect(0,H-260,W,260);
+}
+
 // ---------- Animated reel (drawn on a canvas and recorded to MP4, free, in the browser) ----------
 function reelMime(){
   if(typeof MediaRecorder==='undefined') return '';
@@ -1080,22 +1138,60 @@ function drawReelFrame(x, t, card, lay, bg, logo){
   }
   x.globalAlpha=1;
 }
+
+function demoReelLayout(x, d){
+  const W=1080, pad=86; let size=132, lines;
+  for(;size>=76;size-=6){ lines=wrapText(x,String(d.headline||'').toUpperCase(),'700 '+size+'px "Barlow Condensed", Impact, sans-serif',W-pad*2); if(lines.length<=3) break; }
+  const items=[]; let y=470+size;
+  lines.forEach(l=>{ items.push({t:l,font:'700 '+size+'px "Barlow Condensed", Impact, sans-serif',x:pad,y,at:0.5,dur:0.7,dy:50}); y+=size*0.98; });
+  return { items, pad, phoneY:y+60, size };
+}
+function drawDemoReelFrame(x, t, d, lay, img, bg, logo){
+  const W=1080,H=1920; x.drawImage(bg,0,0);
+  const ease=u=>1-Math.pow(1-Math.min(1,Math.max(0,u)),3), endT=REEL_SECONDS-2.6;
+  const dim = t>endT ? Math.max(0.07, 1-ease((t-endT)/0.6)*0.93) : 1;
+  x.textBaseline='alphabetic';
+  if(logo){ x.globalAlpha=ease(t/0.6)*dim; x.drawImage(logo,40,205,432,100,lay.pad-12,260,372,86); }
+  for(const it of lay.items){ const u=ease((t-it.at)/it.dur); if(u<=0) continue; x.globalAlpha=u*dim; x.fillStyle='#F5F5F5'; x.font=it.font; x.fillText(it.t,it.x,it.y+it.dy*(1-u)); }
+  const pu=ease((t-0.9)/1.1); const pw=640, ph=Math.round(pw*2.16), px=(W-pw)/2, py=lay.phoneY+(1-pu)*(H-lay.phoneY);
+  x.globalAlpha=pu*dim; drawPhone(x,img,px,py,pw,ph,1+Math.max(0,Math.min(1,(t-2)/7))*0.07);
+  const pts=(d.lines||[]).slice(0,3);
+  pts.forEach((p,i)=>{
+    const at=3+i*2.1, u=ease((t-at)/0.5); if(u<=0) return;
+    x.globalAlpha=u*dim; x.font='600 42px "Inter", Arial, sans-serif';
+    const tw=x.measureText(p).width+70, bx=(W-tw)/2, by=1380+i*118+(1-u)*40;
+    rrect(x,bx,by,tw,88,44); x.fillStyle='rgba(8,9,10,0.88)'; x.fill(); x.strokeStyle='rgba(232,48,42,0.7)'; x.lineWidth=3; x.stroke();
+    x.fillStyle='#fff'; x.textAlign='center'; x.fillText(p,W/2,by+58); x.textAlign='left';
+  });
+  if(t>endT){
+    const u=ease((t-endT-0.2)/0.6); x.globalAlpha=u; x.textAlign='center';
+    x.fillStyle='#BDBFC4'; x.font='600 54px "Inter", Arial, sans-serif'; x.fillText('DM me the word',W/2,H/2-60);
+    const word=String(d.word||'APP').toUpperCase(); x.font='700 190px "Barlow Condensed", Impact, sans-serif';
+    const tw=x.measureText(word).width, bw=tw+110, bh=230, bx=W/2-bw/2, by=H/2-20;
+    rrect(x,bx,by,bw,bh,28); x.fillStyle='#E8302A'; x.fill(); x.fillStyle='#fff'; x.fillText(word,W/2,by+174); x.textAlign='left';
+  }
+  x.globalAlpha=1;
+}
+
 async function makeReelBlob(card, onTick){
   const mime=reelMime();
   if(!mime) throw new Error('This browser cannot save MP4 reels. Use an up-to-date Chrome or Safari.');
   try{ await document.fonts.load('700 100px "Barlow Condensed"'); await document.fonts.load('500 40px "Inter"'); }catch(e){}
   const W=1080,H=1920;
   const bg=document.createElement('canvas'); bg.width=W; bg.height=H; const bx=bg.getContext('2d');
+  if(card.demo){ demoBG(bx,W,H,0.3); } else {
   bx.fillStyle='#08090A'; bx.fillRect(0,0,W,H);
-  const g=bx.createRadialGradient(W*0.85,0,0,W*0.85,0,W*1.1); g.addColorStop(0,'rgba(232,48,42,0.30)'); g.addColorStop(1,'rgba(232,48,42,0)'); bx.fillStyle=g; bx.fillRect(0,0,W,H);
+  const g=bx.createRadialGradient(W*0.85,0,0,W*0.85,0,W*1.1); g.addColorStop(0,'rgba(232,48,42,0.30)'); g.addColorStop(1,'rgba(232,48,42,0)'); bx.fillStyle=g; bx.fillRect(0,0,W,H); }
   const logo=await loadLogo(), cv=document.createElement('canvas'); cv.width=W; cv.height=H; const x=cv.getContext('2d');
-  const lay=reelLayout(x,card,W,H);
+  const dImg = card.demo ? await loadImg(card.demo.file) : null;
+  const lay = card.demo ? demoReelLayout(x,card) : reelLayout(x,card,W,H);
+  const paint = t => card.demo ? drawDemoReelFrame(x,t,card,lay,dImg,bg,logo) : drawReelFrame(x,t,card,lay,bg,logo);
   const stream=cv.captureStream(30), rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:4000000}), chunks=[];
   rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
   const done=new Promise((res,rej)=>{ rec.onstop=()=>res(new Blob(chunks,{type:'video/mp4'})); rec.onerror=e=>rej(new Error('Recording failed.')); });
-  drawReelFrame(x,0,card,lay,bg,logo); rec.start(250);
+  paint(0); rec.start(250);
   const t0=performance.now();
-  await new Promise(res=>{ const step=()=>{ const t=(performance.now()-t0)/1000; drawReelFrame(x,Math.min(t,REEL_SECONDS),card,lay,bg,logo); if(onTick) onTick(Math.min(1,t/REEL_SECONDS)); if(t>=REEL_SECONDS) res(); else requestAnimationFrame(step); }; requestAnimationFrame(step); });
+  await new Promise(res=>{ const step=()=>{ const t=(performance.now()-t0)/1000; paint(Math.min(t,REEL_SECONDS)); if(onTick) onTick(Math.min(1,t/REEL_SECONDS)); if(t>=REEL_SECONDS) res(); else requestAnimationFrame(step); }; requestAnimationFrame(step); });
   await new Promise(r=>setTimeout(r,200)); rec.stop();
   const blob=await done;
   if(blob.size<20000) throw new Error('The reel came out empty. Keep this tab open and in front while it records, then try again.');
@@ -1118,7 +1214,7 @@ async function planRows(){
   const { data, error } = await sb.from('ig_schedule').select('*').gte('run_at',since).order('run_at',{ascending:true});
   if(error) throw error; return data||[];
 }
-async function generateWeek(reels, tick){
+async function generateWeek(reels, demos, tick){
   const rows=await planRows(); const recent=(await (async()=>{ if(DEMO) return rd('ig_schedule'); const {data}=await sb.from('ig_schedule').select('label,run_at').order('run_at',{ascending:false}).limit(40); return data||[]; })()).map(r=>r.label).filter(Boolean).slice(0,30);
   let start=new Date(); start.setHours(0,0,0,0); start.setDate(start.getDate()+1);
   const last=rows.filter(r=>r.status!=='skipped').map(r=>r.run_at).sort().pop();
@@ -1127,6 +1223,17 @@ async function generateWeek(reels, tick){
   const j=await aiJSON('Plan 7 days of Instagram content for my coaching business.\nFor EACH day give one feed post idea (a useful, specific coaching tip a real coach would say, drawn from my niche), plus two story call-to-action cards.\nReturn JSON only: {"days":[{"headline":"punchy, max 7 words, no full stop","lines":["3 short specific points, max 10 words each"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me about this post, e.g. PROTEIN","cta1":{"headline":"max 8 words, a low-pressure invitation tied to my offer, no price, no promises","word":"ONE uppercase DM keyword"},"cta2":{"headline":"max 8 words, a different angle to cta1","word":"ONE uppercase DM keyword"}}]}\nExactly 7 days. Vary the topics (training, nutrition, recovery, mindset, running, common mistakes). Do not sound like an AI: no "Here\'s the thing", no triplets of adjectives, no hype. '+(recent.length?'Do not repeat or closely echo these recent topics: '+recent.join(' | ')+'.':''), 6000);
   const days=(j.days||[]).slice(0,7); if(days.length<7) throw new Error('The AI only wrote '+days.length+' days. Try again.');
   const reelDays = reels>0 ? [1,3,5,6].slice(0,reels) : [];
+  const demoDays = ({0:[],1:[2],2:[1,4],3:[0,2,4]})[demos]||[];
+  const demoPick={};
+  if(demoDays.length){
+    const all=await demoScreens(); if(!all.length) throw new Error('The app screenshots are missing. Upload the demo folder from the zip.');
+    const used=recent.join(' | '); const fresh=all.filter(a=>!used.includes('App demo: '+a.title)); const pool=(fresh.length>=demoDays.length?fresh:all).slice();
+    for(let k=0;k<demoDays.length;k++){
+      const sc=pool[k%pool.length]; tick('Writing the app demo post...');
+      const dj=await aiJSON('Write one Instagram post that shows off my client app using this real screen: "'+sc.title+'". What the screen genuinely shows: '+sc.shows+'\nOnly talk about what is listed here. Do not invent features, numbers, results or testimonials.\nReturn JSON only: {"headline":"max 7 words, benefit-led, no full stop","lines":["3 short callouts of max 5 words each, true to the screen"],"caption":"in my voice, 350 characters or fewer, plain and human, say what it does and why it helps, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase DM keyword, e.g. APP"}\nDo not sound like an AI: no hype, no triplets of adjectives.', 1500);
+      demoPick[demoDays[k]]={sc,dj};
+    }
+  }
   const cv=document.createElement('canvas'); let made=0;
   for(let i=0;i<7;i++){
     const d=days[i], day=new Date(start); day.setDate(start.getDate()+i);
@@ -1134,7 +1241,25 @@ async function generateWeek(reels, tick){
     const cap=String(d.caption||'').trim()+((d.hashtags&&d.hashtags.length)?('\n\n'+d.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
     const mk=(r)=>Object.assign({owner:ME.id,caption:'',status:'draft'},r);
     let parent;
-    if(reelDays.includes(i)){
+    if(demoPick[i]){
+      const {sc,dj}=demoPick[i];
+      const dcard={headline:String(dj.headline||sc.title).trim(), lines:(dj.lines||[]).map(String).slice(0,3), word:String(dj.word||'APP'), demo:sc, file:sc.file};
+      const dcap=String(dj.caption||'').trim()+((dj.hashtags&&dj.hashtags.length)?('\n\n'+dj.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
+      const dlabel='App demo: '+sc.title+' · '+dcard.headline;
+      if(reelDays.includes(i)){
+        tick('Day '+(i+1)+' of 7: recording the app demo reel (keep this tab open)...');
+        const blob=await makeReelBlob(dcard,u=>tick('Day '+(i+1)+' of 7: recording the app demo reel '+Math.round(u*100)+'% (keep this tab open)'));
+        const url=await putMedia(blob,'mp4','video/mp4');
+        [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:dcap,label:dlabel,run_at:atLocal(day,PLAN_TIMES.post)})]);
+        await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+dlabel,run_at:atLocal(day,PLAN_TIMES.repost),repost_of:parent.id})]);
+      } else {
+        tick('Day '+(i+1)+' of 7: designing the app demo post...');
+        await renderDemoCard(cv,dcard,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
+        await renderDemoCard(cv,dcard,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
+        [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:dcap,label:dlabel,run_at:atLocal(day,PLAN_TIMES.post)})]);
+        await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+dlabel,run_at:atLocal(day,PLAN_TIMES.repost),repost_of:parent.id})]);
+      }
+    } else if(reelDays.includes(i)){
       tick('Day '+(i+1)+' of 7: recording the reel (keep this tab open)...');
       const blob=await makeReelBlob(card,u=>tick('Day '+(i+1)+' of 7: recording the reel '+Math.round(u*100)+'% (keep this tab open)'));
       const url=await putMedia(blob,'mp4','video/mp4');
@@ -1192,13 +1317,14 @@ async function planSheet(){
     <div class="help">One post or reel a day, a story repost of it, and two call-to-action stories. Nothing goes out until you approve it. Approved items post by themselves at the time shown, even when HQ is closed.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><span class="pill">${drafts} to approve</span><span class="pill" style="color:#3FB950;border-color:rgba(63,185,80,.4)">${approved} scheduled</span>${failed?`<span class="pill">${failed} failed</span>`:''}</div>
     <div class="fld"><label>Animated reels in the next 7 days</label><select class="sel" id="plReels">${[0,2,3,4].map(n=>`<option value="${n}" ${n===(canReel?3:0)?'selected':''} ${n>0&&!canReel?'disabled':''}>${n===0?'None, posts only':n+' reels, the rest posts'}</option>`).join('')}</select>${canReel?'':'<div class="help" style="margin-top:6px">This browser cannot save MP4 reels, so reels are off. Use an up-to-date Chrome or Safari for those.</div>'}</div>
+    <div class="fld"><label>App demo posts in the next 7 days</label><select class="sel" id="plDemos">${[0,1,2,3].map(n=>`<option value="${n}" ${n===1?'selected':''}>${n===0?'None':n+(n===1?' day shows':' days show')+' the client app'}</option>`).join('')}</select><div class="help" style="margin-top:6px">Uses real screens from your client app inside a phone frame. These replace that day's usual post.</div></div>
     <div class="row"><button class="btn" id="plGen">Write and design the next 7 days</button>${drafts?`<button class="btn pri" id="plAll">Approve all ${drafts}</button>`:''}</div>
     <div id="plProg" class="help" style="margin-top:10px"></div>
     ${list}`, b=>{
     const idOf=el=>el.closest('.plr').dataset.id;
     const reload=()=>{ closeSheet(); planSheet(); };
     $('#plGen',b).onclick=()=>working($('#plGen',b),'Working...',async()=>{
-      const n=await generateWeek(Number($('#plReels',b).value), m=>{ $('#plProg',b).textContent=m; });
+      const n=await generateWeek(Number($('#plReels',b).value), Number($('#plDemos',b).value), m=>{ $('#plProg',b).textContent=m; });
       toast(n+' days ready to check'); reload();
     });
     const allBtn=$('#plAll',b); if(allBtn) allBtn.onclick=()=>working(allBtn,'Approving...',async()=>{
@@ -1297,6 +1423,7 @@ const NOTIF_EVENTS = [
   ['new_ig_message','New Instagram message'],
   ['low_recovery','Client flagged as low recovery'],
   ['risky_message_flagged','Risky message flagged'],
+  ['post_published','Post or story went live'],
   ['post_failed','Post failed to publish'],
   ['daily_summary','Daily summary at 7:30am'],
 ];

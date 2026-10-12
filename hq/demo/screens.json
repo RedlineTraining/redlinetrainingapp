@@ -1,0 +1,38 @@
+[
+ {
+  "id": "home",
+  "file": "demo/home.jpg",
+  "title": "Home screen",
+  "shows": "Morning readiness score from a 15 second check-in (sleep plus three quick questions), today's training session, and calories and macros remaining for the day."
+ },
+ {
+  "id": "food",
+  "file": "demo/food.jpg",
+  "title": "Food log",
+  "shows": "Today's meals logged with calories and protein, carbs and fat for each one, with a quick Add a meal button. Meals can be logged from a photo."
+ },
+ {
+  "id": "coach",
+  "file": "demo/coach.jpg",
+  "title": "Coach chat",
+  "shows": "A chat with an AI coach that knows your calorie and protein targets and what you have eaten today, and answers things like how to hit your protein."
+ },
+ {
+  "id": "plan",
+  "file": "demo/plan.jpg",
+  "title": "Training plan",
+  "shows": "A weekly training plan built around your goal, equipment and schedule, with sessions you tick off and a way to ask for changes like more arm work or shorter sessions."
+ },
+ {
+  "id": "progress",
+  "file": "demo/progress.jpg",
+  "title": "Progress",
+  "shows": "A weight trend line, weekly averages for calories and protein, and daily water and sleep tracking."
+ },
+ {
+  "id": "session",
+  "file": "demo/session.jpg",
+  "title": "Workout log",
+  "shows": "Logging a session set by set with kg, reps and reps in reserve, with the exercise, tempo and rest time shown for each lift."
+ }
+]
