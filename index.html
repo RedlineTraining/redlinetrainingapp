@@ -1618,7 +1618,8 @@
     <div class="toggle-row"><div><div class="t-label">Morning check-in</div><div class="t-sub">At your wake-up time</div></div><div class="switch" id="nMorning"></div></div>
     <div class="toggle-row"><div><div class="t-label">Coach replies and plan changes</div></div><div class="switch" id="nCoach"></div></div>
     <div class="toggle-row"><div><div class="t-label">Session still open</div><div class="t-sub">8pm, only if you started one and didn't finish</div></div><div class="switch" id="nSession"></div></div>
-    <div class="toggle-row"><div><div class="t-label">Meal reminders</div><div class="t-sub">9am, 12pm and 6pm, only if nothing's logged</div></div><div class="switch" id="nMeals"></div></div>
+    <div class="toggle-row"><div><div class="t-label">Meal reminders</div><div class="t-sub">Around the times you usually eat, only if nothing's logged</div></div><div class="switch" id="nMeals"></div></div>
+    <div class="toggle-row"><div><div class="t-label">Sunday check-in reminder</div><div class="t-sub">5pm Sunday, only if it isn't in yet</div></div><div class="switch" id="nWeekly"></div></div>
     <div class="toggle-row"><div><div class="t-label">Three days without training</div></div><div class="switch" id="nIdle"></div></div>
 
     <div class="modal-sub">Account</div>
@@ -2356,6 +2357,7 @@
     renderReadinessWidget();
     renderSessionCard();
     renderCoachCard();
+    try{ renderWeeklyCard(); renderInstallBanner(); renderIntakeCard(); }catch(e){}
   }
 
   // Shown right before a session opens, only when today's readiness is low
@@ -3792,7 +3794,7 @@ If — and only if — the user describes a specific meal or food they ate or wa
     sheet.classList.remove('hidden');
     resetSheet();
   }
-  function closeSheet(){ sheet.classList.add('hidden'); pendingMeal = null; }
+  function closeSheet(){ sheet.classList.add('hidden'); pendingMeal = null; try{ stopBarcode(); }catch(e){} }
   function resetSheet(){
     document.getElementById('photoInput').value = '';
     document.getElementById('previewWrap').classList.add('hidden');
@@ -3807,6 +3809,8 @@ If — and only if — the user describes a specific meal or food they ate or wa
     document.querySelectorAll('#modeToggle button').forEach(b=>b.classList.toggle('active', b.getAttribute('data-mode')===mode));
     document.getElementById('photoMode').classList.toggle('hidden', mode!=='photo');
     document.getElementById('describeMode').classList.toggle('hidden', mode!=='describe');
+    const bm = document.getElementById('barcodeMode');
+    if(bm){ bm.classList.toggle('hidden', mode!=='barcode'); if(mode==='barcode'){ document.getElementById('bcPanel').classList.remove('hidden'); startBarcode(); } else stopBarcode(); }
   }
   document.getElementById('addMealBtn').addEventListener('click', openSheet);
   document.querySelectorAll('#modeToggle button').forEach(b=>{
@@ -4503,6 +4507,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
     document.getElementById('daysLoggedVal').textContent = `${daysLogged}/7`;
     document.getElementById('avgCalVal').textContent = daysWithData ? Math.round(calSum/daysWithData).toLocaleString()+' kcal' : '—';
     document.getElementById('avgProteinVal').textContent = daysWithData ? Math.round(proteinSum/daysWithData)+'g' : '—';
+    try{ renderPlusProgress(); }catch(e){ console.warn(e); }
   }
   function drawSparkline(points){
     const svg = document.getElementById('sparklineSvg');
@@ -4538,7 +4543,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
   document.getElementById('sleepInput').addEventListener('change', async (e)=>{ widgets.sleep=e.target.value; await saveWidgets(); });
 
   // ================= NOTIFICATIONS =================
-  const NOTIF_KEYS = { nMorning:'morning_report', nCoach:null, nSession:'session_open', nMeals:'meal_reminder', nIdle:'inactivity' };
+  const NOTIF_KEYS = { nMorning:'morning_report', nCoach:null, nSession:'session_open', nMeals:'meal_reminder', nIdle:'inactivity', nWeekly:'weekly_checkin' };
   function b64ToU8(b64){
     const pad='='.repeat((4-b64.length%4)%4), raw=atob((b64+pad).replace(/-/g,'+').replace(/_/g,'/'));
     const out=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++) out[i]=raw.charCodeAt(i); return out;
@@ -4630,6 +4635,7 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
     document.getElementById('nSession').classList.toggle('on', isOn('session_open'));
     document.getElementById('nMeals').classList.toggle('on', isOn('meal_reminder'));
     document.getElementById('nIdle').classList.toggle('on', isOn('inactivity'));
+    document.getElementById('nWeekly').classList.toggle('on', isOn('weekly_checkin'));
     document.getElementById('wakeTime').value = wake;
     refreshPushUI();
   }
@@ -4645,7 +4651,9 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
       const before = JSON.stringify(NS);
       const today = toDateKey(new Date());
       NS.name = (profile && profile.name) || NS.name || '';
+      if(!NS.usualAt || Date.now()-NS.usualAt > 12*3600e3){ NS.usual = await computeUsualTimes(); NS.usualAt = Date.now(); }
       if(currentDate === today){
+        const mt = { date: today }; (entries||[]).forEach(e=>{ mt[mealOf(e)] = true; }); NS.mealsToday = mt;
         if(widgets && widgets.readiness && widgets.readiness.date === today) NS.checkedInDate = today;
         const times = (entries||[]).map(e=>e.loggedAt).filter(Boolean).sort();
         if(times.length) NS.lastEntryAt = times[times.length-1];
@@ -4860,6 +4868,13 @@ Re-estimate the WHOLE meal with that correction applied. Keep the other items as
       }
       if(Date.now() - liveSlow > 20000){
         liveSlow = Date.now();
+        try{
+          const tr = await sb.from('app_data').select('value').eq('user_id', currentUser.id).eq('key','targets').maybeSingle();
+          if(tr.data && tr.data.value && tr.data.value !== memStore['targets'] && pushQueue.size===0){
+            memStore['targets'] = tr.data.value; lsSet('targets', tr.data.value);
+            try{ targets = JSON.parse(tr.data.value); render(); showToast('Your coach updated your daily targets.'); }catch(e){}
+          }
+        }catch(e){}
         const { data } = await sb.from('app_data').select('key,value').eq('user_id', currentUser.id).eq('key','coachPlan').maybeSingle();
         if(data && data.value && data.value !== memStore['coachPlan']){
           memStore['coachPlan'] = data.value; lsSet('coachPlan', data.value);
@@ -6482,6 +6497,501 @@ Respond with ONLY JSON, no markdown fences:
     }, true);
   })();
 
+
+  // When this person usually eats each meal (median of the last two weeks), so reminders follow their rhythm.
+  async function computeUsualTimes(){
+    const buckets = { breakfast:[], lunch:[], dinner:[] };
+    for(let i=0;i>-14;i--){
+      let es = []; try{ const r = await store.get('entries:'+dateKeyOffset(i)); es = (r&&r.value)?JSON.parse(r.value):[]; }catch(e){}
+      const first = {};
+      es.forEach(e=>{ const m = mealOf(e); if(buckets[m] && e.loggedAt){ const d = new Date(e.loggedAt); const mins = d.getHours()*60+d.getMinutes(); if(first[m]===undefined || mins<first[m]) first[m] = mins; } });
+      Object.keys(first).forEach(m=>buckets[m].push(first[m]));
+    }
+    const out = {};
+    Object.keys(buckets).forEach(m=>{ const a = buckets[m].sort((x,y)=>x-y); if(a.length>=3){ const med = a[Math.floor(a.length/2)]; out[m] = String(Math.floor(med/60)).padStart(2,'0')+':'+String(med%60).padStart(2,'0'); } });
+    return out;
+  }
+  // ================= REDLINE+ : barcode, saved meals, measurements, photos, weekly check-in, install guide =================
+  const $x = id => document.getElementById(id);
+  const todayKey = () => toDateKey(new Date());
+  const isoWeekEnd = (d)=>{ // the Sunday that ends this check-in week: Mon/Tue count as the week just finished
+    const x = new Date(d); x.setHours(12,0,0,0); const dow = x.getDay();
+    if(dow===0) return toDateKey(x);
+    if(dow<=2){ x.setDate(x.getDate()-dow); return toDateKey(x); }
+    x.setDate(x.getDate()+(7-dow)); return toDateKey(x);
+  };
+  const jget = async (key, dflt)=>{ try{ const r = await store.get(key); if(r && r.value) return JSON.parse(r.value); }catch(e){} return dflt; };
+  const jset = (key, val)=>store.set(key, JSON.stringify(val));
+  const unitW = ()=>profile && profile.units==='imperial' ? 'lb' : 'kg';
+  const unitL = ()=>profile && profile.units==='imperial' ? 'in' : 'cm';
+  const cmToShow = cm => profile && profile.units==='imperial' ? Math.round(cm/2.54*10)/10 : Math.round(cm*10)/10;
+  const showToCm = v => profile && profile.units==='imperial' ? inToCm(v) : v;
+
+  const plusCSS = document.createElement('style');
+  plusCSS.textContent = `
+    .rlx-card{background:var(--bg-elev); border:1px solid var(--hairline); border-radius:16px; padding:16px; margin-bottom:14px;}
+    .rlx-card h4{margin:0 0 4px; font-size:14px; font-weight:600;}
+    .rlx-sub{font-size:12.5px; color:var(--text-dim); line-height:1.45;}
+    .rlx-row{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px;}
+    .rlx-btn{border:1px solid var(--hairline); background:var(--bg-elev-2); color:var(--text); border-radius:12px; padding:11px 14px; font-size:13px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif;}
+    .rlx-btn.pri{background:var(--red); border-color:var(--red); color:#fff;}
+    .rlx-btn.sm{padding:8px 11px; font-size:12px;}
+    .rlx-in{background:var(--bg-elev-2); border:1px solid var(--hairline); color:var(--text); border-radius:10px; padding:11px 12px; font-size:15px; width:100%; font-family:'Inter',sans-serif;}
+    .rlx-lbl{font-size:12px; color:var(--text-dim); margin:12px 0 5px; display:block;}
+    .rlx-scale{display:flex; gap:6px;} .rlx-scale button{flex:1; padding:11px 0; border-radius:10px; border:1px solid var(--hairline); background:var(--bg-elev-2); color:var(--text-dim); font-weight:600; cursor:pointer;}
+    .rlx-scale button.on{background:var(--red); border-color:var(--red); color:#fff;}
+    .rlx-cam{width:100%; border-radius:14px; background:#000; aspect-ratio:4/3; object-fit:cover;}
+    .rlx-photo-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:10px;}
+    .rlx-photo-grid .ph{position:relative; aspect-ratio:3/4; background:var(--bg-elev-2); border-radius:10px; overflow:hidden; border:1px solid var(--hairline); cursor:pointer;}
+    .rlx-photo-grid img{width:100%; height:100%; object-fit:cover; display:block;}
+    .rlx-photo-grid .tag{position:absolute; left:4px; bottom:4px; font-size:10px; background:rgba(0,0,0,.65); color:#fff; border-radius:6px; padding:2px 6px;}
+    .rlx-cmp{position:relative; width:100%; aspect-ratio:3/4; background:#000; border-radius:12px; overflow:hidden; touch-action:none; user-select:none;}
+    .rlx-cmp img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
+    .rlx-cmp .top{clip-path:inset(0 50% 0 0);} .rlx-cmp .bar{position:absolute; top:0; bottom:0; left:50%; width:3px; background:var(--red); transform:translateX(-50%);}
+    .rlx-list-row{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--hairline);}
+    .rlx-list-row:last-child{border-bottom:none;} .rlx-list-row .n{font-weight:600; font-size:14px;} .rlx-list-row .m{font-size:12px; color:var(--text-dim);}
+    .rlx-step{display:flex; gap:12px; margin:14px 0;} .rlx-step .no{flex:0 0 28px; height:28px; border-radius:50%; background:var(--red); color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; font-size:13px;}
+    .rlx-banner{background:linear-gradient(135deg,#1a0a0b,var(--bg-elev)); border:1px solid var(--red-dim,#5a1a18); border-radius:16px; padding:14px 16px; margin-bottom:12px;}
+    #barcodeMode .rlx-scanbox{position:relative;} #barcodeMode .rlx-scanline{position:absolute; left:8%; right:8%; top:50%; height:2px; background:var(--red); box-shadow:0 0 10px var(--red); opacity:.85;}
+  `;
+  document.head.appendChild(plusCSS);
+  function plusModal(id, title, html){
+    let m = $x(id); if(m) m.remove();
+    document.body.insertAdjacentHTML('beforeend', `<div class="modal-overlay" id="${id}"><div class="modal"><div class="overlay-head"><h3 class="serif" style="margin:0;">${title}</h3><button class="overlay-x" data-rlx-close aria-label="Close">✕</button></div><div class="rlx-body">${html}</div></div></div>`);
+    m = $x(id);
+    m.addEventListener('click', e=>{ if(e.target===m || e.target.hasAttribute('data-rlx-close')) closePlus(id); });
+    return m.querySelector('.rlx-body');
+  }
+  const plusClosers = {};
+  function closePlus(id){ const m=$x(id); if(!m) return; try{ plusClosers[id] && plusClosers[id](); }catch(e){} m.remove(); }
+
+  // ---------- Barcode scanner (free Open Food Facts database) ----------
+  // Reads EAN-13 / EAN-8 / UPC-A barcodes from a grey image. No libraries. Returns the digits or ''.
+const RLEAN = (() => {
+  const L=['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+  const G=['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
+  const R=['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
+  const PAR=['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+  const runsOf=s=>{ const o=[]; let c=s[0],n=0; for(const ch of s){ if(ch===c) n++; else { o.push(n); c=ch; n=1; } } o.push(n); return o; };
+  // pattern run-lengths always start with the colour the digit starts with: L/G start with a space, R starts with a bar
+  const PATS=[]; for(let d=0;d<10;d++){ PATS.push({d,t:'L',r:runsOf(L[d])},{d,t:'G',r:runsOf(G[d])},{d,t:'R',r:runsOf(R[d])}); }
+  function digitFrom(runs, i, want){
+    const r=[runs[i],runs[i+1],runs[i+2],runs[i+3]], T=r[0]+r[1]+r[2]+r[3]; if(T<=0) return null;
+    const m=T/7; let best=null, bestE=1e9;
+    for(const p of PATS){ if(want && p.t!==want && !(want==='LG' && (p.t==='L'||p.t==='G'))) continue; let e=0; for(let k=0;k<4;k++) e+=Math.abs(r[k]/m-p.r[k]); if(e<bestE){ bestE=e; best=p; } }
+    return bestE<2.0 ? { d:best.d, t:best.t, m } : null;
+  }
+  const checkOK=s=>{ let sum=0; const n=s.length; for(let i=0;i<n-1;i++){ const d=+s[n-2-i]; sum+= (i%2===0?3:1)*d; } return (10-sum%10)%10===+s[n-1]; };
+  function tryAt(runs, i){
+    // runs[i] must be a bar. guard bar,space,bar of equal width
+    const a=runs[i],b=runs[i+1],c=runs[i+2]; const u=(a+b+c)/3; if(u<1.2) return '';
+    if(i>0 && runs[i-1]<u*4.5) return '';   // needs a clear quiet zone before the barcode (stops a short code being read inside a long one)
+    if([a,b,c].some(x=>x<u*0.55||x>u*1.7)) return '';
+    for(const half of [6,4]){
+      const total=3+half*4+5+half*4+3; if(i+total>runs.length) continue;
+      let p=i+3; const digs=[], types=[];
+      let ok=true;
+      for(let k=0;k<half&&ok;k++){ const x=digitFrom(runs,p,half===6?'LG':'L'); if(!x||x.m<u*0.6||x.m>u*1.6){ ok=false; break; } digs.push(x.d); types.push(x.t); p+=4; }
+      if(!ok) continue;
+      // middle guard: space bar space bar space, each about one module
+      const mid=runs.slice(p,p+5); if(mid.some(x=>x<u*0.5||x>u*1.7)) continue; p+=5;
+      const right=[];
+      for(let k=0;k<half&&ok;k++){ const x=digitFrom(runs,p,'R'); if(!x||x.m<u*0.6||x.m>u*1.6){ ok=false; break; } right.push(x.d); p+=4; }
+      if(!ok) continue;
+      let code;
+      if(half===6){ const par=types.join(''); const f=PAR.indexOf(par); if(f<0) continue; code=String(f)+digs.join('')+right.join(''); }
+      else code=digs.join('')+right.join('');
+      if(p+3<runs.length && runs[p+3]<u*4.5) continue;
+      if(checkOK(code)) return code;
+    }
+    return '';
+  }
+  function decodeLine(g){
+    const n=g.length; if(n<60) return '';
+    // local threshold so uneven light doesn't matter
+    const w=Math.max(15,(n/8)|0), pre=new Float64Array(n+1); for(let i=0;i<n;i++) pre[i+1]=pre[i]+g[i];
+    const bits=new Uint8Array(n), thr=new Float64Array(n); let lo=255,hi=0; for(let i=0;i<n;i++){ if(g[i]<lo) lo=g[i]; if(g[i]>hi) hi=g[i]; }
+    if(hi-lo<40) return '';
+    // light smoothing, then a threshold that follows the local brightness, with a dead zone so noise can't flicker it
+    const sm=new Float64Array(n); for(let i=0;i<n;i++){ const a=g[Math.max(0,i-1)],b=g[i],c=g[Math.min(n-1,i+1)]; sm[i]=(a+2*b+c)/4; }
+    const B=Math.max(12,Math.ceil(n/10)), nb=Math.ceil(n/B), mids=[];
+    for(let k=0;k<nb;k++){ let a=255,b=0; for(let i=k*B;i<Math.min(n,(k+1)*B);i++){ if(sm[i]<a) a=sm[i]; if(sm[i]>b) b=sm[i]; } mids.push(b-a<25?-1:(a+b)/2); }
+    for(let k=0;k<nb;k++) if(mids[k]<0){ let j=k; while(j<nb&&mids[j]<0) j++; let p=k-1; mids[k]= (p>=0&&mids[p]>=0)?mids[p]:(j<nb?mids[j]:(lo+hi)/2); }
+    const dz=Math.max(3,(hi-lo)*0.04); let prev=0;
+    for(let i=0;i<n;i++){ const f=Math.max(0,Math.min(nb-1,(i+0.5)/B-0.5)), k=Math.floor(f), t=f-k, m=mids[k]*(1-t)+mids[Math.min(nb-1,k+1)]*t; thr[i]=m; if(sm[i]<m-dz) prev=1; else if(sm[i]>m+dz) prev=0; bits[i]=prev; }
+    // edge positions to a fraction of a pixel, so thin bars on a small image still measure well
+    const edges=[0]; for(let i=0;i<n-1;i++){ if(bits[i]!==bits[i+1]){ const t=(thr[i]+thr[i+1])/2, d=sm[i+1]-sm[i]; let f=d!==0?(t-sm[i])/d:0.5; f=Math.max(0,Math.min(1,f)); edges.push(i+f+0.5); } }
+    edges.push(n);
+    const runs=[]; for(let k=0;k<edges.length-1;k++) runs.push(edges[k+1]-edges[k]);
+    const firstBar = bits[0]===1?0:1;
+    if(runs.length<20) return '';
+    for(let i=firstBar;i+3<runs.length;i+=2){ const r=tryAt(runs,i); if(r) return r; }
+    const rev=runs.slice().reverse(); const startBar = (runs.length-1)%2===0 ? (bits[n-1]===1?0:1) : (bits[n-1]===1?1:0);
+    for(let i=startBar;i+3<rev.length;i+=2){ const r=tryAt(rev,i); if(r) return r; }
+    return '';
+  }
+  // gray: Uint8 array w*h. Scans many rows, then many columns (barcode held sideways).
+  function decodeGray(gray,w,h){
+    const row=new Uint8Array(w), col=new Uint8Array(h);
+    const rows=[]; for(let k=0;k<41;k++){ rows.push(Math.round(h*(0.5+(k%2?1:-1)*Math.ceil(k/2)*0.012))); }
+    for(const y of rows){ if(y<0||y>=h) continue; for(let x=0;x<w;x++) row[x]=gray[y*w+x]; const r=decodeLine(row); if(r) return r; }
+    const cols=[]; for(let k=0;k<41;k++){ cols.push(Math.round(w*(0.5+(k%2?1:-1)*Math.ceil(k/2)*0.012))); }
+    for(const x of cols){ if(x<0||x>=w) continue; for(let y=0;y<h;y++) col[y]=gray[y*w+x]; const r=decodeLine(col); if(r) return r; }
+    return '';
+  }
+  return { decodeGray, decodeLine, checkOK };
+})();
+
+
+  const BC = { stream:null, timer:null, active:false, detector:null, busy:false };
+  function bcStatus(t, bad){ const el=$x('bcStatus'); if(el){ el.textContent=t; el.style.color = bad?'var(--red)':'var(--text-dim)'; } }
+  async function startBarcode(){
+    stopBarcode(); bcStatus('Starting the camera...');
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ bcStatus('This browser cannot open the camera here. Type the number under the barcode instead.', true); return; }
+    try{
+      BC.stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } }, audio:false });
+    }catch(e){ bcStatus('Camera blocked. Allow the camera for this app, or type the number under the barcode.', true); return; }
+    const v = $x('bcVideo'); v.srcObject = BC.stream; v.setAttribute('playsinline',''); v.muted = true;
+    try{ await v.play(); }catch(e){}
+    BC.active = true;
+    try{ if('BarcodeDetector' in window){ const f = await BarcodeDetector.getSupportedFormats(); if(f.includes('ean_13')) BC.detector = new BarcodeDetector({ formats:['ean_13','ean_8','upc_a','upc_e'] }); } }catch(e){ BC.detector = null; }
+    bcStatus('Point the camera at the barcode. Hold steady about 15 cm away.');
+    const cv = document.createElement('canvas'), cx = cv.getContext('2d', { willReadFrequently:true });
+    const loop = async ()=>{
+      if(!BC.active) return;
+      const vw = v.videoWidth, vh = v.videoHeight;
+      if(vw && !BC.busy){
+        BC.busy = true;
+        try{
+          let code = '';
+          if(BC.detector){ const r = await BC.detector.detect(v); if(r && r.length) code = String(r[0].rawValue||''); }
+          if(!code){
+            const sc = Math.min(1, 1000/Math.max(vw,vh)); cv.width = Math.round(vw*sc); cv.height = Math.round(vh*sc);
+            cx.drawImage(v,0,0,cv.width,cv.height); const id = cx.getImageData(0,0,cv.width,cv.height).data, g = new Uint8Array(cv.width*cv.height);
+            for(let i=0,j=0;i<id.length;i+=4,j++) g[j] = (id[i]*77 + id[i+1]*150 + id[i+2]*29) >> 8;
+            code = RLEAN.decodeGray(g, cv.width, cv.height);
+          }
+          if(code){ BC.busy = false; await onBarcode(code); return; }
+        }catch(e){ /* keep scanning */ }
+        BC.busy = false;
+      }
+      BC.timer = setTimeout(loop, 110);
+    };
+    loop();
+  }
+  function stopBarcode(){ BC.active = false; clearTimeout(BC.timer); if(BC.stream){ BC.stream.getTracks().forEach(t=>t.stop()); BC.stream = null; } const v=$x('bcVideo'); if(v) v.srcObject = null; }
+  function normCode(c){ c = String(c||'').replace(/\D/g,''); return c.length===12 ? '0'+c : c; }
+  async function lookupBarcode(code){
+    code = normCode(code);
+    const cache = await jget('barcodeCache', {});
+    if(cache[code]) return cache[code];
+    const r = await fetch('https://world.openfoodfacts.org/api/v2/product/'+code+'.json?fields=product_name,brands,quantity,serving_size,serving_quantity,nutriments', { headers:{ 'Accept':'application/json' } });
+    if(!r.ok) throw new Error('lookup');
+    const j = await r.json();
+    if(!j || j.status!==1 || !j.product) return null;
+    const p = j.product, n = p.nutriments || {};
+    let kcal = Number(n['energy-kcal_100g']); if(!(kcal>=0)) { const kj = Number(n['energy_100g']); kcal = kj>=0 ? kj/4.184 : NaN; }
+    if(!(kcal>=0)) return null;
+    const out = { code, name: ((p.brands?String(p.brands).split(',')[0].trim()+' ':'')+(p.product_name||'Packaged food')).trim(),
+      kcal100:kcal, p100:Number(n.proteins_100g)||0, c100:Number(n.carbohydrates_100g)||0, f100:Number(n.fat_100g)||0,
+      serving_g:Number(p.serving_quantity)>0 ? Number(p.serving_quantity) : 0, serving_txt:p.serving_size||'', pack: String(p.quantity||'') };
+    cache[code] = out; const keys = Object.keys(cache); if(keys.length>120) delete cache[keys[0]];
+    await jset('barcodeCache', cache);
+    return out;
+  }
+  function barcodeToResult(f){
+    const base = f.serving_g || 100, k = base/100;
+    const units = [];
+    if(f.serving_g) units.push({ name:'1 serving ('+Math.round(f.serving_g)+' g)', grams:f.serving_g });
+    units.push({ name:'100 g', grams:100 });
+    return { name:f.name, weight_g:base, calories:f.kcal100*k, protein_g:f.p100*k, carbs_g:f.c100*k, fat_g:f.f100*k, confidence:'high', units, ingredients:[], defaultUnitIndex:0, defaultQty:1, _barcode:f.code };
+  }
+  async function onBarcode(code){
+    stopBarcode(); bcStatus('Found '+code+'. Looking it up...');
+    try{
+      const f = await lookupBarcode(code);
+      if(!f){ bcStatus('That barcode is not in the free food database yet. Use Photo (point at the label) or Describe instead.', true); showToast('Not found. Try Photo or Describe.'); return; }
+      $x('bcPanel').classList.add('hidden');
+      handleAnalysisResult(barcodeToResult(f), 'barcode', 'barcode:'+f.code);
+    }catch(e){ bcStatus('Could not reach the food database. Check your connection and try again.', true); }
+  }
+  function initBarcodeUI(){
+    const tog = $x('modeToggle'); if(!tog || $x('bcModeBtn')) return;
+    tog.insertAdjacentHTML('beforeend','<button data-mode="barcode" id="bcModeBtn">Barcode</button>');
+    $x('describeMode').insertAdjacentHTML('afterend', `<div id="barcodeMode" class="hidden"><div id="bcPanel"><div class="rlx-scanbox"><video id="bcVideo" class="rlx-cam" playsinline muted></video><div class="rlx-scanline"></div></div>
+      <div class="rlx-sub" id="bcStatus" style="margin-top:8px;">Point the camera at the barcode.</div>
+      <div class="rlx-row"><input class="rlx-in" id="bcManual" inputmode="numeric" placeholder="Or type the number under the barcode" style="flex:1;"><button class="rlx-btn pri sm" id="bcGo">Look up</button></div></div></div>`);
+    tog.querySelectorAll('button').forEach(b=>{ if(b.id==='bcModeBtn') b.addEventListener('click', ()=>setSheetMode('barcode')); });
+    $x('bcGo').addEventListener('click', ()=>{ const c = normCode($x('bcManual').value); if(c.length<8){ bcStatus('Type all the digits under the barcode.', true); return; } onBarcode(c); });
+  }
+
+  // ---------- Saved meals ----------
+  async function getSaved(){ return jget('savedMeals', []); }
+  async function saveMealFrom(e){
+    const list = await getSaved();
+    const key = String(e.name||'').trim().toLowerCase();
+    const row = { id:cryptoId(), name:e.name, calories:Math.round(e.calories||0), protein:Math.round(e.protein||0), carbs:Math.round(e.carbs||0), fat:Math.round(e.fat||0), weight_g:e.weight_g||0, ingredients:e.ingredients||[] };
+    const i = list.findIndex(x=>String(x.name||'').trim().toLowerCase()===key);
+    if(i>=0) list[i] = Object.assign(list[i], row, { id:list[i].id }); else list.unshift(row);
+    await jset('savedMeals', list.slice(0,60)); showToast('Saved to your meals');
+  }
+  async function openSavedMeals(){
+    const body = plusModal('savedModal','My meals','<div class="rlx-sub">Tap a meal to add it to today. Save any meal from its edit screen with the star.</div><div id="savedList" style="margin-top:8px;"></div>');
+    const paint = async ()=>{
+      const list = await getSaved();
+      // recent foods from the last week, so common things are one tap away even if never saved
+      const recent = []; const seen = new Set(list.map(x=>String(x.name||'').toLowerCase()));
+      for(let i=0;i>-7 && recent.length<8;i--){ const es = await jget('entries:'+dateKeyOffset(i), []); es.slice().reverse().forEach(e=>{ const k=String(e.name||'').toLowerCase(); if(k && !seen.has(k) && recent.length<8){ seen.add(k); recent.push(e); } }); }
+      const row = (e, saved)=>`<div class="rlx-list-row"><div style="min-width:0"><div class="n">${escapeHtml(e.name)}</div><div class="m">${Math.round(e.calories||0)} kcal · P${Math.round(e.protein||0)} C${Math.round(e.carbs||0)} F${Math.round(e.fat||0)}</div></div><div style="display:flex; gap:6px;"><button class="rlx-btn pri sm" data-add="${saved?'s':'r'}:${saved?e.id:escapeHtml(e.name)}">Add</button>${saved?`<button class="rlx-btn sm" data-del="${e.id}" aria-label="Remove">✕</button>`:''}</div></div>`;
+      $x('savedList').innerHTML = (list.length? list.map(e=>row(e,true)).join('') : '<div class="rlx-sub" style="padding:14px 0;">Nothing saved yet.</div>')
+        + (recent.length? '<div class="rlx-lbl" style="margin-top:16px;">Recently eaten</div>'+recent.map(e=>row(e,false)).join('') : '');
+      $x('savedList').querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{
+        const [t,id] = b.getAttribute('data-add').split(/:(.*)/s); const src = t==='s' ? list.find(x=>x.id===id) : recent.find(x=>escapeHtml(x.name)===id); if(!src) return;
+        logEntry({ name:src.name, calories:src.calories, protein:src.protein, carbs:src.carbs, fat:src.fat, weight_g:src.weight_g, meal:defaultMeal(), source:'saved', ingredients:src.ingredients||[] });
+        closePlus('savedModal'); showToast('Added: '+src.name);
+      });
+      $x('savedList').querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ await jset('savedMeals', list.filter(x=>x.id!==b.getAttribute('data-del'))); paint(); });
+    };
+    paint();
+  }
+  function initSavedUI(){
+    const link = $x('copyDayLink'); if(link && !$x('savedLink')){ link.insertAdjacentHTML('afterend','<button class="log-manually-link" id="savedLink">My meals</button>'); $x('savedLink').addEventListener('click', openSavedMeals); }
+    const sv = $x('editSave'); if(sv && !$x('editStar')){ sv.insertAdjacentHTML('beforebegin','<button class="sheet-btn sheet-btn-ghost" id="editStar" aria-label="Save to my meals" style="flex:0 0 52px;">☆</button>'); $x('editStar').addEventListener('click', ()=>{ const e = entries.find(x=>x.id===editingId); if(e) saveMealFrom(e); }); }
+  }
+
+  // ---------- Measurements ----------
+  const MEAS = [['waist','Waist'],['chest','Chest'],['hips','Hips'],['arm','Arm'],['thigh','Thigh']];
+  async function renderMeasurements(){
+    const el = $x('rlxMeas'); if(!el) return;
+    const list = await jget('measurements', []);
+    const sel = (el.querySelector('#measSel')||{}).value || 'waist';
+    const series = list.filter(m=>m[sel]>0).sort((a,b)=>a.d<b.d?-1:1);
+    const last = series[series.length-1], first = series[0];
+    el.innerHTML = `<h4>Measurements</h4><div class="rlx-sub">Tape measurements show changes the scale can't. Once every week or two is plenty.</div>
+      <div class="rlx-row"><select id="measSel" class="rlx-in" style="flex:1;">${MEAS.map(m=>`<option value="${m[0]}" ${m[0]===sel?'selected':''}>${m[1]}</option>`).join('')}</select>
+        <input id="measVal" class="rlx-in" type="number" step="0.1" inputmode="decimal" placeholder="${unitL()}" style="flex:1;"><button class="rlx-btn pri sm" id="measLog">Log</button></div>
+      <svg id="measSpark" viewBox="0 0 400 60" width="100%" height="60" style="margin-top:10px; ${series.length>1?'':'display:none;'}"></svg>
+      <div class="rlx-sub" id="measNote">${series.length? (cmToShow(last[sel])+' '+unitL()+' on '+last.d+(series.length>1? ' · '+(last[sel]-first[sel]>0?'+':'')+cmToShow(last[sel]-first[sel])+' '+unitL()+' since '+first.d:'')) : 'No entries yet.'}</div>`;
+    const svg = el.querySelector('#measSpark'); const pts = series.slice(-12).map(m=>m[sel]);
+    if(pts.length>1){ const mn=Math.min(...pts), mx=Math.max(...pts), sp=(mx-mn)||1; const xy = pts.map((v,i)=>[10+i*(380/(pts.length-1)), 50-((v-mn)/sp)*40]);
+      svg.innerHTML = `<polyline fill="none" stroke="var(--red)" stroke-width="2.5" points="${xy.map(p=>p.join(',')).join(' ')}"/>`+xy.map(p=>`<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="var(--red)"/>`).join(''); }
+    el.querySelector('#measSel').onchange = renderMeasurements;
+    el.querySelector('#measLog').onclick = async ()=>{
+      const v = Number(el.querySelector('#measVal').value); if(!(v>0)) return;
+      const s = el.querySelector('#measSel').value; const all = await jget('measurements', []); const d = todayKey();
+      let row = all.find(x=>x.d===d); if(!row){ row = { d }; all.push(row); } row[s] = Math.round(showToCm(v)*10)/10;
+      await jset('measurements', all.slice(-200)); showToast('Logged'); renderMeasurements();
+    };
+  }
+
+  // ---------- Progress photos (private, optional) ----------
+  const POSES = [['front','Front'],['side','Side'],['back','Back']];
+  function resizeToBlob(file, maxDim){
+    return new Promise((res, rej)=>{
+      const img = new Image(), u = URL.createObjectURL(file);
+      img.onload = ()=>{ const s = Math.min(1, maxDim/Math.max(img.naturalWidth, img.naturalHeight)); const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth*s); c.height = Math.round(img.naturalHeight*s);
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(u); c.toBlob(b=>b?res({blob:b, dataUrl:c.toDataURL('image/jpeg',0.7)}):rej(new Error('photo')),'image/jpeg',0.82); };
+      img.onerror = ()=>{ URL.revokeObjectURL(u); rej(new Error('photo')); }; img.src = u;
+    });
+  }
+  async function addPhoto(file, pose){
+    const { blob, dataUrl } = await resizeToBlob(file, 1280);
+    const list = await jget('photos', []); const row = { id:cryptoId(), d:todayKey(), pose };
+    if(sb && currentUser){
+      row.path = currentUser.id+'/'+row.d+'-'+pose+'-'+Math.random().toString(36).slice(2,7)+'.jpg';
+      const up = await sb.storage.from('progress').upload(row.path, blob, { contentType:'image/jpeg' });
+      if(up.error) throw new Error(up.error.message);
+    } else { row.data = dataUrl; }
+    list.push(row); await jset('photos', list.slice(-120)); return row;
+  }
+  async function photoUrl(row){
+    if(row.data) return row.data;
+    const { data } = await sb.storage.from('progress').createSignedUrl(row.path, 3600);
+    return data ? data.signedUrl : '';
+  }
+  async function renderPhotos(){
+    const el = $x('rlxPhotos'); if(!el) return;
+    const list = (await jget('photos', [])).sort((a,b)=>a.d<b.d?1:-1);
+    el.innerHTML = `<h4>Progress photos <span class="rlx-sub">(optional)</span></h4><div class="rlx-sub">Private. Only you and your coach can see these, and you can delete any photo whenever you like.</div>
+      <div class="rlx-row">${POSES.map(p=>`<label class="rlx-btn sm" style="cursor:pointer;">+ ${p[1]}<input type="file" accept="image/*" data-pose="${p[0]}" style="display:none;"></label>`).join('')}${list.length>1?'<button class="rlx-btn sm" id="phCompare">Compare</button>':''}</div>
+      <div class="rlx-photo-grid" id="phGrid"></div>`;
+    const grid = el.querySelector('#phGrid');
+    for(const row of list.slice(0,9)){
+      const d = document.createElement('div'); d.className='ph'; d.innerHTML = `<span class="tag">${row.d.slice(5)} · ${row.pose}</span>`; grid.appendChild(d);
+      photoUrl(row).then(u=>{ if(u){ const im=document.createElement('img'); im.src=u; im.loading='lazy'; d.prepend(im); } });
+      d.onclick = ()=>viewPhoto(row);
+    }
+    el.querySelectorAll('input[data-pose]').forEach(inp=>inp.onchange = async ()=>{
+      const f = inp.files[0]; if(!f) return; showToast('Saving photo...');
+      try{ await addPhoto(f, inp.getAttribute('data-pose')); showToast('Photo saved'); renderPhotos(); }catch(e){ console.error(e); showToast('Could not save that photo'); }
+    });
+    const cmp = el.querySelector('#phCompare'); if(cmp) cmp.onclick = ()=>comparePhotos(list);
+  }
+  async function viewPhoto(row){
+    const body = plusModal('photoModal', row.d+' · '+row.pose, '<img id="phBig" style="width:100%; border-radius:12px;"><div class="rlx-row"><button class="rlx-btn sm" id="phDel" style="color:var(--red);">Delete this photo</button></div>');
+    photoUrl(row).then(u=>{ $x('phBig').src = u; });
+    $x('phDel').onclick = async ()=>{
+      if(!confirm('Delete this photo for good?')) return;
+      try{ if(row.path && sb) await sb.storage.from('progress').remove([row.path]); }catch(e){}
+      await jset('photos', (await jget('photos', [])).filter(x=>x.id!==row.id)); closePlus('photoModal'); renderPhotos();
+    };
+  }
+  async function comparePhotos(list){
+    const poses = [...new Set(list.map(p=>p.pose))];
+    const body = plusModal('cmpModal','Compare','<div class="rlx-row" style="margin-top:0;"><select id="cmpPose" class="rlx-in" style="flex:1;">'+poses.map(p=>`<option>${p}</option>`).join('')+'</select></div><div class="rlx-row"><select id="cmpA" class="rlx-in" style="flex:1;"></select><select id="cmpB" class="rlx-in" style="flex:1;"></select></div><div class="rlx-cmp" id="cmpBox" style="margin-top:12px;"></div><div class="rlx-sub" style="margin-top:8px;">Drag the line to slide between the two photos.</div>');
+    const fill = ()=>{ const pose=$x('cmpPose').value, rows = list.filter(p=>p.pose===pose); const opts = rows.map(r=>`<option value="${r.id}">${r.d}</option>`).join(''); $x('cmpA').innerHTML = opts; $x('cmpB').innerHTML = opts; if(rows.length>1){ $x('cmpA').value = rows[rows.length-1].id; $x('cmpB').value = rows[0].id; } draw(); };
+    const draw = async ()=>{
+      const a = list.find(r=>r.id===$x('cmpA').value), b = list.find(r=>r.id===$x('cmpB').value); if(!a||!b) return;
+      const [ua,ub] = await Promise.all([photoUrl(a), photoUrl(b)]);
+      $x('cmpBox').innerHTML = `<img src="${ub}"><img class="top" id="cmpTop" src="${ua}"><div class="bar" id="cmpBar"></div>`;
+      const box = $x('cmpBox'); const move = x=>{ const r = box.getBoundingClientRect(); const p = Math.max(0,Math.min(100,(x-r.left)/r.width*100)); $x('cmpTop').style.clipPath = `inset(0 ${100-p}% 0 0)`; $x('cmpBar').style.left = p+'%'; };
+      box.onpointerdown = e=>{ box.setPointerCapture(e.pointerId); move(e.clientX); box.onpointermove = ev=>move(ev.clientX); };
+    };
+    $x('cmpPose').onchange = fill; $x('cmpA').onchange = draw; $x('cmpB').onchange = draw; fill();
+  }
+  function injectProgressCards(){
+    if($x('rlxMeas')) return;
+    const anchor = document.querySelector('#progressScreen .widget-pair'); if(!anchor) return;
+    anchor.insertAdjacentHTML('beforebegin','<div class="rlx-card" id="rlxMeas"></div><div class="rlx-card" id="rlxPhotos"></div><div class="rlx-card" id="rlxCheckLink"></div>');
+  }
+  async function renderPlusProgress(){
+    injectProgressCards(); await renderMeasurements(); await renderPhotos();
+    const cl = $x('rlxCheckLink'); if(cl){ const done = await jget('checkin:'+isoWeekEnd(new Date()), null);
+      cl.innerHTML = `<h4>Weekly check-in</h4><div class="rlx-sub">${done?'This week is in. Your coach has it.':'Takes two minutes. Your coach reads every one and adjusts your plan from it.'}</div><div class="rlx-row"><button class="rlx-btn ${done?'':'pri'} sm" id="rlxCheckOpen">${done?'Review or update':'Do my check-in'}</button></div>`;
+      $x('rlxCheckOpen').onclick = openCheckin2; }
+  }
+
+  // ---------- Weekly check-in (Sunday) ----------
+  async function weekStats(){
+    let logged=0, cal=0, pro=0, n=0;
+    for(let i=0;i>-7;i--){ const es = await jget('entries:'+dateKeyOffset(i), []); if(es.length){ logged++; n++; cal += es.reduce((a,e)=>a+(Number(e.calories)||0),0); pro += es.reduce((a,e)=>a+(Number(e.protein)||0),0); } }
+    let sessions = 0; const since = Date.now()-7*864e5; Object.keys(trainingLogs||{}).forEach(k=>{ const l=trainingLogs[k]; if(l && l.done && l.completedAt && new Date(l.completedAt).getTime()>=since) sessions++; });
+    let weight = null; for(let i=0;i>-7;i--){ const w = await jget('widgets:'+dateKeyOffset(i), null); if(w && w.weight){ weight = Number(w.weight); break; } }
+    return { daysLogged:logged, avgCal:n?Math.round(cal/n):0, avgProtein:n?Math.round(pro/n):0, sessions, weight };
+  }
+  async function renderWeeklyCard(){
+    let el = $x('rlxWeekly'); if(!el){ const anchor = $x('readinessCard'); if(!anchor) return; anchor.insertAdjacentHTML('beforebegin','<div id="rlxWeekly"></div>'); el = $x('rlxWeekly'); }
+    const dow = new Date().getDay(); const wk = isoWeekEnd(new Date());
+    const done = await jget('checkin:'+wk, null);
+    if(done || !(dow===0 || dow===1 || dow===2)){ el.innerHTML=''; return; }
+    el.innerHTML = `<div class="rlx-banner"><h4 style="margin:0 0 3px;">${dow===0?'Weekly check-in':'Weekly check-in is waiting'}</h4><div class="rlx-sub">Two minutes: weight, how the week felt, and a photo if you like. Your coach reads every one.</div><div class="rlx-row"><button class="rlx-btn pri sm" id="rlxWeeklyGo">Do it now</button></div></div>`;
+    $x('rlxWeeklyGo').onclick = openCheckin2;
+  }
+  async function openCheckin2(){
+    const wk = isoWeekEnd(new Date()); const prev = await jget('checkin:'+wk, null); const st = await weekStats();
+    const sc = (id, label, v)=>`<span class="rlx-lbl">${label}</span><div class="rlx-scale" data-sc="${id}">${[1,2,3,4,5].map(n=>`<button data-v="${n}" class="${(prev?prev[id]:v)===n?'on':''}">${n}</button>`).join('')}</div>`;
+    const body = plusModal('checkinModal','Weekly check-in', `
+      <div class="rlx-sub">Week ending ${wk}. You logged food on ${st.daysLogged}/7 days and did ${st.sessions} session${st.sessions===1?'':'s'}.</div>
+      <span class="rlx-lbl">Weight (${unitW()})</span><input class="rlx-in" id="ckW" type="number" step="0.1" inputmode="decimal" value="${prev&&prev.weight!=null?prev.weight:(st.weight||'')}">
+      <span class="rlx-lbl">Waist (${unitL()}), optional</span><input class="rlx-in" id="ckWaist" type="number" step="0.1" inputmode="decimal" value="${prev&&prev.waist!=null?prev.waist:''}">
+      ${sc('energy','Energy this week (1 low, 5 high)',3)}${sc('sleep','Sleep quality',3)}${sc('stress','Stress (1 calm, 5 stressed)',3)}${sc('motivation','Motivation',3)}
+      <span class="rlx-lbl">Biggest win this week</span><textarea class="rlx-in" id="ckWin" rows="2">${escapeHtml(prev?prev.win||'':'')}</textarea>
+      <span class="rlx-lbl">What got in the way?</span><textarea class="rlx-in" id="ckStruggle" rows="2">${escapeHtml(prev?prev.struggle||'':'')}</textarea>
+      <span class="rlx-lbl">Anything you want to ask your coach?</span><textarea class="rlx-in" id="ckQ" rows="2">${escapeHtml(prev?prev.question||'':'')}</textarea>
+      <span class="rlx-lbl">Photos, optional</span><div class="rlx-row" style="margin-top:0;">${POSES.map(p=>`<label class="rlx-btn sm" style="cursor:pointer;">+ ${p[1]}<input type="file" accept="image/*" data-ckpose="${p[0]}" style="display:none;"></label>`).join('')}</div><div class="rlx-sub" id="ckPhotoNote"></div>
+      <div class="rlx-row"><button class="rlx-btn pri" id="ckSubmit" style="flex:1;">${prev?'Update check-in':'Send to my coach'}</button></div>`);
+    const vals = { energy:prev?prev.energy:3, sleep:prev?prev.sleep:3, stress:prev?prev.stress:3, motivation:prev?prev.motivation:3 };
+    body.querySelectorAll('[data-sc]').forEach(g=>g.querySelectorAll('button').forEach(b=>b.onclick=()=>{ vals[g.getAttribute('data-sc')] = Number(b.getAttribute('data-v')); g.querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b)); }));
+    const photos = prev && prev.photos ? prev.photos.slice() : [];
+    body.querySelectorAll('[data-ckpose]').forEach(inp=>inp.onchange = async ()=>{
+      const f = inp.files[0]; if(!f) return; $x('ckPhotoNote').textContent = 'Saving photo...';
+      try{ const row = await addPhoto(f, inp.getAttribute('data-ckpose')); photos.push(row.path || ('local:'+row.id)); $x('ckPhotoNote').textContent = photos.length+' photo'+(photos.length===1?'':'s')+' attached'; }catch(e){ $x('ckPhotoNote').textContent = 'Could not save that photo.'; }
+    });
+    $x('ckSubmit').onclick = async ()=>{
+      const btn = $x('ckSubmit'); btn.disabled = true;
+      const weight = Number($x('ckW').value) || null, waist = Number($x('ckWaist').value) || null;
+      const rec = { week:wk, date:todayKey(), units:profile&&profile.units||'metric', weight, waist, energy:vals.energy, sleep:vals.sleep, stress:vals.stress, motivation:vals.motivation,
+        win:$x('ckWin').value.trim(), struggle:$x('ckStruggle').value.trim(), question:$x('ckQ').value.trim(), daysLogged:st.daysLogged, sessions:st.sessions, avgCal:st.avgCal, avgProtein:st.avgProtein, photos, submittedAt:new Date().toISOString(), reviewed:false };
+      try{
+        await jset('checkin:'+wk, rec);
+        if(weight){ const w = await jget('widgets:'+todayKey(), {water:0,sleep:''}); w.weight = weight; await jset('widgets:'+todayKey(), w); if(currentDate===todayKey()) widgets.weight = weight; }
+        if(waist){ const all = await jget('measurements', []); let row = all.find(x=>x.d===todayKey()); if(!row){ row={d:todayKey()}; all.push(row); } row.waist = Math.round(showToCm(waist)*10)/10; await jset('measurements', all.slice(-200)); }
+        if(!prev) await pushMessage({ source:'app', direction:'in', author:'client', body:'Weekly check-in submitted for the week ending '+wk+'. Energy '+rec.energy+'/5, sleep '+rec.sleep+'/5, stress '+rec.stress+'/5, motivation '+rec.motivation+'/5.'+(rec.question?' Question: '+rec.question:'') });
+        NS = NS || {}; NS.lastCheckinDate = todayKey(); try{ await store.set('notifyState', JSON.stringify(NS)); }catch(e){}
+        closePlus('checkinModal'); showToast('Check-in sent. Nice work.'); renderWeeklyCard(); renderPlusProgress();
+      }catch(e){ console.error(e); btn.disabled = false; showToast('Could not send that. Try again.'); }
+    };
+  }
+
+  // ---------- Install guide and notification setup ----------
+  let deferredInstall = null;
+  window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredInstall = e; renderInstallBanner(); });
+  const lsFlag = (k)=>{ try{ return localStorage.getItem(k); }catch(e){ return null; } };
+  const lsFlagSet = (k,v)=>{ try{ localStorage.setItem(k,v); }catch(e){} };
+  function renderInstallBanner(){
+    let el = $x('rlxInstall'); if(!el){ const anchor = $x('readinessCard'); if(!anchor) return; anchor.insertAdjacentHTML('beforebegin','<div id="rlxInstall"></div>'); el = $x('rlxInstall'); }
+    const dismissed = Number(lsFlag('rl-install-dismiss')||0);
+    if(isStandalone || (Date.now()-dismissed) < 7*864e5){ el.innerHTML=''; return; }
+    const steps = isIOS ? 'Tap the <b>Share</b> button (the square with an arrow), choose <b>Add to Home Screen</b>, then tap <b>Add</b>. Open Redline from your home screen after that.'
+      : (deferredInstall ? 'Install Redline so it opens like a real app and can send you reminders.' : 'Open the browser menu and choose <b>Install app</b> or <b>Add to Home Screen</b>.');
+    el.innerHTML = `<div class="rlx-banner"><h4 style="margin:0 0 3px;">Add Redline to your home screen</h4><div class="rlx-sub">${steps}<br>This is also what lets your phone send check-in reminders and coach replies.</div><div class="rlx-row">${deferredInstall?'<button class="rlx-btn pri sm" id="rlxInstallGo">Install</button>':''}<button class="rlx-btn sm" id="rlxInstallLater">Not now</button></div></div>`;
+    const go = $x('rlxInstallGo'); if(go) go.onclick = async ()=>{ try{ deferredInstall.prompt(); await deferredInstall.userChoice; }catch(e){} deferredInstall = null; renderInstallBanner(); };
+    $x('rlxInstallLater').onclick = ()=>{ lsFlagSet('rl-install-dismiss', String(Date.now())); renderInstallBanner(); };
+  }
+  async function openNotifGuide(force){
+    const st = await Promise.race([pushState(), new Promise(r=>setTimeout(()=>r('off'),1500))]);
+    if(!force && (lsFlag('rl-notif-guide')==='done' || st==='on' || st==='unsupported' || !vapidKey())) return;
+    const stepOne = st==='needs-install' ? `<div class="rlx-step"><div class="no">1</div><div><b>Add Redline to your Home Screen first</b><div class="rlx-sub">iPhone only sends notifications to apps on the Home Screen. Tap Share, then Add to Home Screen, then open Redline from there.</div></div></div>`
+      : st==='denied' ? `<div class="rlx-step"><div class="no">1</div><div><b>Notifications are blocked</b><div class="rlx-sub">${isIOS?'Open the iPhone Settings app, scroll to Redline, tap Notifications and switch Allow Notifications on.':'Open your browser or phone settings, find this app or site, and allow notifications.'} Then come back here.</div></div></div>`
+      : `<div class="rlx-step"><div class="no">1</div><div><b>Allow notifications</b><div class="rlx-sub">Tap the button below, then tap Allow when your phone asks.</div><div class="rlx-row"><button class="rlx-btn pri sm" id="ngAllow">Turn on notifications</button></div></div></div>`;
+    plusModal('notifGuide','Never miss a reminder', `<div class="rlx-sub">So your phone can tell you when your coach replies, your check-in is due, or a session is waiting.</div>${stepOne}
+      <div class="rlx-step"><div class="no">2</div><div><b>Make sure they actually appear</b><div class="rlx-sub">${isIOS?'iPhone: Settings → Notifications → Redline. Turn on Lock Screen, Notification Centre and Banners, and Sounds if you want them.':'Phone settings → Apps → Redline → Notifications: switch them on and allow sound.'}</div></div></div>
+      <div class="rlx-step"><div class="no">3</div><div><b>Check Focus and Do Not Disturb</b><div class="rlx-sub">${isIOS?'If you use a Focus mode (Sleep, Work), add Redline under Allowed Apps so reminders still reach you.':'If Do Not Disturb is on, add Redline to the allowed apps.'}</div></div></div>
+      <div class="rlx-step"><div class="no">4</div><div><b>Send yourself a test</b><div class="rlx-sub">Settings (the gear) → Notifications → Send a test. If it appears, you're set.</div></div></div>
+      <div class="rlx-row"><button class="rlx-btn pri" id="ngDone" style="flex:1;">Done</button></div>`);
+    plusClosers.notifGuide = ()=>lsFlagSet('rl-notif-guide','done');
+    const al = $x('ngAllow'); if(al) al.onclick = async ()=>{ try{ await enableClientPush(); const s2 = await pushState(); if(s2==='on'){ showToast('Notifications are on'); al.textContent='Done. Now check step 2'; al.disabled=true; } }catch(e){ showToast('Could not turn them on'); } };
+    $x('ngDone').onclick = ()=>closePlus('notifGuide');
+  }
+  function initInstallUI(){
+    renderInstallBanner();
+    if(isStandalone && !FORCE_LOCAL) setTimeout(()=>openNotifGuide(false), 2500);
+    const row = $x('pushStatusSub'); if(row && !$x('notifGuideLink')){ row.insertAdjacentHTML('afterend','<button class="log-manually-link" id="notifGuideLink" style="margin-top:6px;">Notification setup guide</button>'); $x('notifGuideLink').addEventListener('click', ()=>{ $x('settingsModal').classList.add('hidden'); openNotifGuide(true); }); }
+  }
+
+
+  // ---------- Coach intake (1:1 and Pro clients only) ----------
+  let myLevel = null;
+  async function renderIntakeCard(){
+    let el = $x('rlxIntake'); if(!el){ const anchor = $x('readinessCard'); if(!anchor) return; anchor.insertAdjacentHTML('beforebegin','<div id="rlxIntake"></div>'); el = $x('rlxIntake'); }
+    if(!(sb && currentUser)){ el.innerHTML=''; return; }
+    if(myLevel===null){ try{ const { data } = await sb.from('clients').select('level,status').eq('user_id', currentUser.id).maybeSingle(); myLevel = data ? data.level : ''; }catch(e){ myLevel=''; } }
+    const done = await jget('intake', null);
+    if(done || !(myLevel==='coaching' || myLevel==='pro')){ el.innerHTML=''; return; }
+    el.innerHTML = `<div class="rlx-banner"><h4 style="margin:0 0 3px;">Tell your coach about you</h4><div class="rlx-sub">Five minutes, once. It helps your coach build the right plan from day one.</div><div class="rlx-row"><button class="rlx-btn pri sm" id="rlxIntakeGo">Start</button></div></div>`;
+    $x('rlxIntakeGo').onclick = openIntake;
+  }
+  async function openIntake(){
+    const f = (id,label,ph,rows)=>`<span class="rlx-lbl">${label}</span><textarea class="rlx-in" id="${id}" rows="${rows||2}" placeholder="${ph||''}"></textarea>`;
+    plusModal('intakeModal','About you', `<div class="rlx-sub">Only your coach sees this. Short answers are fine.</div>
+      ${f('inGoal','What do you want to achieve, in your own words?','e.g. lean out for summer, run a half marathon')}
+      ${f('inWhy','Why now? What would hitting it change for you?')}
+      ${f('inHistory','Training history','How long, what styles, what you enjoyed')}
+      ${f('inTried','What have you tried before, and what happened?')}
+      ${f('inInjury','Injuries, pain or anything your coach should work around','None is a fine answer')}
+      ${f('inSchedule','Your week','Work hours, days you can train, anything fixed')}
+      ${f('inFood','Food: likes, dislikes, allergies, how you usually eat')}
+      <span class="rlx-lbl">How do you like to be coached?</span><div class="rlx-scale" id="inStyle"><button data-v="gentle">Gentle</button><button data-v="balanced" class="on">Balanced</button><button data-v="direct">Direct</button></div>
+      ${f('inElse','Anything else I should know?')}
+      <label style="display:flex; gap:8px; align-items:flex-start; margin-top:14px; font-size:13px; color:var(--text-dim);"><input type="checkbox" id="inPhotos" checked style="margin-top:3px;"> It's OK for my coach to view progress photos if I add them.</label>
+      <div class="rlx-row"><button class="rlx-btn pri" id="inSend" style="flex:1;">Send to my coach</button></div>`);
+    let style='balanced'; $x('inStyle').querySelectorAll('button').forEach(b=>b.onclick=()=>{ style=b.getAttribute('data-v'); $x('inStyle').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
+    $x('inSend').onclick = async ()=>{
+      const v = id=>$x(id).value.trim(); const rec = { goal:v('inGoal'), why:v('inWhy'), history:v('inHistory'), tried:v('inTried'), injury:v('inInjury'), schedule:v('inSchedule'), food:v('inFood'), style, extra:v('inElse'), photosOk:$x('inPhotos').checked, submittedAt:new Date().toISOString() };
+      if(!rec.goal){ showToast('Tell your coach your goal first.'); return; }
+      await jset('intake', rec);
+      await pushMessage({ source:'app', direction:'in', author:'client', body:'New client intake completed. Goal: '+rec.goal.slice(0,160) });
+      closePlus('intakeModal'); showToast('Sent. Thanks.'); renderIntakeCard();
+    };
+  }
+
+  // ---------- Hooks into the app ----------
+  function plusInit(){
+    try{ initBarcodeUI(); initSavedUI(); injectProgressCards(); renderWeeklyCard(); initInstallUI(); }catch(e){ console.warn('plus init', e); }
+  }
+
+  if(FORCE_LOCAL) window.__rlTest = { computeUsualTimes, openIntake };
+  plusInit();
   // ================= INIT =================
   loadAll();
 })();
