@@ -437,7 +437,7 @@ async function callTeamFn(action, payload){
 
 // Queues (and immediately attempts to send) a push/email notification for
 // one user. Fire-and-forget from the UI's point of view — never blocks on it.
-async function notify(userId, event, title, body, link){
+async function notify(userId, event, title, body, link, app){
   if(DEMO){ console.log('[notify demo]', userId, event, title, body); return; }
   try{
     const { data } = await sb.auth.getSession();
@@ -445,7 +445,7 @@ async function notify(userId, event, title, body, link){
     if(!token) return;
     const r = await fetch(SUPABASE_URL+'/functions/v1/notify', {
       method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-      body: JSON.stringify({ user_id:userId, event, title, body, link:link||'' })
+      body: JSON.stringify({ user_id:userId, event, title, body, link:link||'', app:app||'' })
     });
     let j={}; try{ j=await r.json(); }catch(e){}
     if(!r.ok) j.error = j.error || ('HTTP '+r.status);
@@ -1961,7 +1961,8 @@ async function pushStatus(){
 async function savePushSub(sub){
   if(DEMO) return null;
   const j = sub.toJSON();
-  const { error } = await sb.from('push_subs').upsert([{ user_id:ME.id, endpoint:j.endpoint, keys:j.keys }], { onConflict:'endpoint' });
+  let { error } = await sb.from('push_subs').upsert([{ user_id:ME.id, endpoint:j.endpoint, keys:j.keys, app:'hq' }], { onConflict:'endpoint' });
+  if(error && /app/.test(error.message||'')) ({ error } = await sb.from('push_subs').upsert([{ user_id:ME.id, endpoint:j.endpoint, keys:j.keys }], { onConflict:'endpoint' }));
   return error ? (error.message || String(error)) : null;
 }
 async function enablePush(){
@@ -2021,7 +2022,7 @@ async function notificationsSheet(){
     <button class="btn pri" id="notifSave" style="width:100%">Save</button>
   `, b=>{
     if(status==='on' && !DEMO){ (async()=>{ try{ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); if(!sub || !sameKey(sub, VAPID_PUBLIC_KEY)) return; const err=await savePushSub(sub); const w=$('#pushWarn',b); if(w && err){ w.textContent='This device is not saved on the server: '+err; w.classList.remove('hidden'); } }catch(e){} })(); }
-    const pt=$('#pushTest',b); if(pt) pt.onclick = ()=>working(pt,'Sending...',async()=>{ const j = await notify(ME.id,'test','Redline HQ','This is a test. If you can read this, notifications work.','') || {};
+    const pt=$('#pushTest',b); if(pt) pt.onclick = ()=>working(pt,'Sending...',async()=>{ const j = await notify(ME.id,'test','Redline HQ','This is a test. If you can read this, notifications work.','','hq') || {};
       let m;
       if(j.error) m = 'Server error: '+j.error+(/404|Failed to fetch|NetworkError/i.test(j.error)?' (is the notify function deployed?)':'');
       else if(j.subs===undefined) m = j.status==='sent' ? 'The server says it SENT the notification to your phone. If nothing appeared, the problem is on the phone: check Settings → Notifications → Redline HQ is on, no Focus mode is active, and HQ was opened from the home-screen icon.' : 'The server skipped it (no saved device for you, or quiet hours). Your notify function is the older version, so it cannot say which. Check the push_subs table in Supabase.';
@@ -2503,6 +2504,7 @@ async function start(){
     return;
   }
   setupVoice(); go('today'); startLive();
+  if(!DEMO) (async()=>{ try{ if(typeof Notification!=='undefined' && Notification.permission==='granted' && 'serviceWorker' in navigator){ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); if(sub) await savePushSub(sub); } }catch(e){} })();
   intelRefresh(true).then(ok=>{ if(ok && !busyTyping()) render(); });
   const nm = ownerFirstName(); if($('#meName')){ $('#meName').textContent=nm; $('#meAv').textContent=nm.charAt(0).toUpperCase(); $('#meRole').textContent = IS_OWNER?'Owner':'Team'; }
 }
