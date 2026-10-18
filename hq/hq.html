@@ -1019,34 +1019,194 @@ function jpegFrom(file, feed){
     img.src=u;
   });
 }
-// Branded text card (headline + 3 points + logo), drawn on a canvas so it looks designed, not AI-generated.
+// Branded text card. Ten different layouts so the profile grid never looks copy-pasted.
+// card = { headline, lines[], tag?, word?, layout?, photo? (an Image, for the photo layouts) }
 let _logoImg=null;
 function loadLogo(){ return new Promise(r=>{ if(_logoImg) return r(_logoImg); const i=new Image(); i.onload=()=>{_logoImg=i;r(i);}; i.onerror=()=>r(null); i.src='icons/redline-logo.png'; }); }
+const HEAD='"Barlow Condensed", Impact, sans-serif', BODYF='"Inter", Arial, sans-serif', RED='#E8302A';
+const handleText=()=>S.handle?(S.handle.startsWith('@')?S.handle:'@'+S.handle):'@redline.training';
+function fitHead(x,text,weight,maxW,maxLines,max,min,step,maxH,lhm){
+  lhm=lhm||0.96;
+  for(let s=max;s>=min;s-=(step||6)){ const l=wrapText(x,text,weight+' '+s+'px '+HEAD,maxW); if(l.length<=maxLines&&(!maxH||l.length*s*lhm<=maxH)&&l.every(t=>x.measureText(t).width<=maxW)) return {size:s,lines:l}; }
+  for(let s=min-4;s>=44;s-=4){ const l=wrapText(x,text,weight+' '+s+'px '+HEAD,maxW); if((!maxH||l.length*s*lhm<=maxH)&&l.every(t=>x.measureText(t).width<=maxW)) return {size:s,lines:l}; }
+  return {size:44,lines:wrapText(x,text,weight+' 44px '+HEAD,maxW)};
+}
+function ptsHeight(x,lines,size,maxW,lh,gap,indent){ const font='500 '+size+'px '+BODYF; let h=0; for(const p of (lines||[]).slice(0,3)){ h+=wrapText(x,p,font,maxW-(indent||44)).length*lh+gap; } return h; }
+let _noise=null;
+function grain(x,W,H,a,mode){
+  if(!_noise){ const c=document.createElement('canvas'); c.width=c.height=256; const g=c.getContext('2d'), id=g.createImageData(256,256); let s=1234567;
+    for(let i=0;i<id.data.length;i+=4){ s=(s*1103515245+12345)&0x7fffffff; const v=(s>>16)&255; id.data[i]=id.data[i+1]=id.data[i+2]=v; id.data[i+3]=255; } g.putImageData(id,0,0); _noise=c; }
+  x.save(); x.globalAlpha=a; x.globalCompositeOperation=mode||'overlay'; x.fillStyle=x.createPattern(_noise,'repeat'); x.fillRect(0,0,W,H); x.restore();
+}
+function blotches(x,W,H,n,rgb,amax){ for(let i=0;i<n;i++){ const cx=Math.random()*W, cy=Math.random()*H, r=180+Math.random()*420, g=x.createRadialGradient(cx,cy,0,cx,cy,r); g.addColorStop(0,'rgba('+rgb+','+(Math.random()*amax).toFixed(3)+')'); g.addColorStop(1,'rgba('+rgb+',0)'); x.fillStyle=g; x.fillRect(0,0,W,H); } }
+function chalk(x,W,H,n){ x.save(); for(let i=0;i<n;i++){ x.globalAlpha=Math.random()*0.16; x.fillStyle='#fff'; x.beginPath(); x.arc(Math.random()*W,Math.random()*H,Math.random()*2.6+0.4,0,6.283); x.fill(); } x.restore(); }
+function drawLogoAt(x,logo,px,py,w){ if(logo) x.drawImage(logo,40,205,432,100,px,py,w,w*100/432); }
+function coverRect(x,img,dx,dy,dw,dh,fy){
+  const sw=img.naturalWidth||img.width, sh=img.naturalHeight||img.height, s=Math.max(dw/sw,dh/sh), w=sw*s, h=sh*s;
+  const ox=dx+(dw-w)/2, oy=dy+(dh-h)*(fy==null?0.4:fy); x.drawImage(img,ox,oy,w,h);
+}
+// Brings stock photos into one consistent, slightly muted, darker look so they feel like part of the brand.
+function gradePhoto(x,dx,dy,dw,dh){
+  x.save(); x.beginPath(); x.rect(dx,dy,dw,dh); x.clip();
+  x.globalAlpha=0.30; x.globalCompositeOperation='saturation'; x.fillStyle='#000'; x.fillRect(dx,dy,dw,dh);
+  x.globalCompositeOperation='source-over'; x.globalAlpha=0.22; x.fillStyle='#07080A'; x.fillRect(dx,dy,dw,dh);
+  x.restore();
+}
+function tagPill(x,txt,px,py,opt){
+  if(!txt) return 0; opt=opt||{}; x.save(); x.font='700 36px '+HEAD; const t=String(txt).toUpperCase().slice(0,18), w=x.measureText(t).width+44, bx=opt.right?px-w:px;
+  rrect(x,bx,py,w,58,10); x.fillStyle=opt.bg||RED; x.fill(); x.fillStyle='#fff'; x.textBaseline='alphabetic'; x.fillText(t,bx+22,py+41); x.restore(); return w;
+}
+function pointRows(x,lines,px,py,maxW,o){
+  o=o||{}; const font='500 '+(o.size||44)+'px '+BODYF, gap=o.gap||24, lh=o.lh||Math.round((o.size||44)*1.38); let y=py;
+  for(const p of (lines||[]).slice(0,3)){
+    const ls=wrapText(x,p,font,maxW-(o.indent||44)); x.fillStyle=o.dot||RED; x.fillRect(px,y-(o.size||44)*0.62,14,14);
+    x.fillStyle=o.color||'#D8D8DA'; x.font=font; for(const l of ls){ x.fillText(l,px+(o.indent||44),y); y+=lh; } y+=gap;
+  } return y;
+}
+function shadowText(x,t,px,py,blur){ x.save(); x.shadowColor='rgba(0,0,0,0.6)'; x.shadowBlur=blur||24; x.fillText(t,px,py); x.restore(); }
+
+const LAYOUTS={
+  // 1. The original look
+  classic(x,W,H,c,S,ctx){
+    x.fillStyle='#08090A'; x.fillRect(0,0,W,H);
+    const g=x.createRadialGradient(W*0.85,0,0,W*0.85,0,W*0.9); g.addColorStop(0,'rgba(232,48,42,0.28)'); g.addColorStop(1,'rgba(232,48,42,0)'); x.fillStyle=g; x.fillRect(0,0,W,H);
+    const pad=86, top=S?260:120; drawLogoAt(x,ctx.logo,pad-12,top,372);
+    let y=top+(S?240:210); x.fillStyle='#F5F5F5';
+    const f=fitHead(x,String(c.headline||'').toUpperCase(),'700',W-pad*2,3,S?150:132,80,6);
+    x.font='700 '+f.size+'px '+HEAD; for(const l of f.lines){ x.fillText(l,pad,y); y+=f.size*0.98; }
+    y+=36; x.fillStyle=RED; x.fillRect(pad,y,120,8); y+=84; pointRows(x,c.lines,pad,y,W-pad*2-60,{size:46,gap:26,lh:62});
+    x.fillStyle='#8A8D93'; x.font='500 34px '+BODYF; x.fillText(handleText(),pad,H-(S?260:96));
+  },
+  // 2. One huge statement, last line in red
+  statement(x,W,H,c,S,ctx){
+    x.fillStyle='#0A0B0C'; x.fillRect(0,0,W,H); blotches(x,W,H,5,'255,255,255',0.05); grain(x,W,H,0.16);
+    const pad=84, top=S?270:96; x.fillStyle=RED; x.fillRect(0,top+4,16,S?420:300);
+    tagPill(x,c.tag,pad,top);
+    const botZone=S?380:200, ptsH=ptsHeight(x,c.lines,40,W-pad*2,54,14)+(((c.lines||[]).length)?94:0);
+    const hTop=top+(S?150:110), hMax=H-hTop-botZone-ptsH;
+    const f=fitHead(x,String(c.headline||'').toUpperCase(),'700',W-pad*2,5,S?330:270,100,8,hMax,0.9), lh=f.size*0.9;
+    const total=f.lines.length*lh;
+    let y=hTop+Math.max(0,(hMax-total)/2)+f.size*0.8;
+    x.font='700 '+f.size+'px '+HEAD;
+    f.lines.forEach((l,i)=>{ x.fillStyle=(i===f.lines.length-1&&f.lines.length>1)?RED:'#F5F5F5'; x.fillText(l,pad,y); y+=lh; });
+    y+=30; x.fillStyle='rgba(255,255,255,0.18)'; x.fillRect(pad,y,W-pad*2,3); y+=64;
+    pointRows(x,c.lines,pad,y,W-pad*2,{size:40,gap:14,lh:54,color:'#B9BBC0'});
+    drawLogoAt(x,ctx.logo,pad-12,H-(S?330:150),300);
+    x.fillStyle='#7C7F86'; x.font='500 32px '+BODYF; x.textAlign='right'; x.fillText(handleText(),W-pad,H-(S?285:104)); x.textAlign='left';
+  },
+  // 3. Light paper card: a break from the dark feed
+  bone(x,W,H,c,S,ctx){
+    x.fillStyle='#ECE7DC'; x.fillRect(0,0,W,H); grain(x,W,H,0.10,'multiply');
+    const barH=S?330:190; x.fillStyle='#0A0B0C'; x.fillRect(0,0,W,barH); drawLogoAt(x,ctx.logo,70,S?208:56,420);
+    x.fillStyle=RED; x.fillRect(0,barH,W,10);
+    const pad=84; const f=fitHead(x,String(c.headline||'').toUpperCase(),'700',W-pad*2,4,S?170:140,70,6,S?520:330,0.96); let y=barH+(S?60:46)+f.size*0.86;
+    x.fillStyle='#0B0B0C'; x.font='700 '+f.size+'px '+HEAD; for(const l of f.lines){ x.fillText(l,pad,y); y+=f.size*0.96; }
+    y+=(S?60:36);
+    const rows=(c.lines||[]).slice(0,3), avail=H-y-(S?330:150), rh=Math.min(S?250:200,avail/Math.max(1,rows.length));
+    rows.forEach((p,i)=>{ const ry=y+i*rh; x.fillStyle='rgba(10,11,12,0.22)'; x.fillRect(pad,ry,W-pad*2,3);
+      x.fillStyle=RED; x.font='700 '+(S?120:104)+'px '+HEAD; x.fillText(String(i+1).padStart(2,'0'),pad,ry+(S?120:104)+12);
+      x.fillStyle='#1B1C1E'; x.font='600 '+(S?46:42)+'px '+BODYF; const ls=wrapText(x,p,'600 '+(S?46:42)+'px '+BODYF,W-pad*2-190); let ty=ry+(rh>150?66:58); ls.slice(0,3).forEach(l=>{ x.fillText(l,pad+170,ty); ty+=58; }); });
+    x.fillStyle='#55585E'; x.font='600 32px '+BODYF; x.fillText(handleText(),pad,H-(S?270:70));
+  },
+  // 4. Quote card with chalk dust
+  quote(x,W,H,c,S,ctx){
+    x.fillStyle='#111214'; x.fillRect(0,0,W,H); blotches(x,W,H,6,'255,255,255',0.045);
+    const v=x.createRadialGradient(W/2,H/2,H*0.25,W/2,H/2,H*0.85); v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(0,0,0,0.55)'); x.fillStyle=v; x.fillRect(0,0,W,H);
+    chalk(x,W,H,S?420:320); grain(x,W,H,0.10);
+    const pad=90, top=S?280:110; x.fillStyle=RED; x.font='700 '+(S?560:480)+'px '+HEAD; x.fillText('“',pad-24,top+(S?420:360));
+    const qTop=top+(S?400:330), qBot=S?400:230, qPts=ptsHeight(x,c.lines,40,W-pad*2,54,12)+110;
+    const f=fitHead(x,String(c.headline||''),'600',W-pad*2,5,S?170:146,70,6,H-qTop-qBot-qPts,0.98); const blockH=f.lines.length*f.size*0.98+qPts; let y=qTop+Math.max(0,(H-qTop-qBot-blockH)/2)+f.size*0.82;
+    x.fillStyle='#F5F5F5'; x.font='600 '+f.size+'px '+HEAD; for(const l of f.lines){ x.fillText(l,pad,y); y+=f.size*0.98; }
+    y+=34; x.fillStyle=RED; x.fillRect(pad,y,90,6); y+=70;
+    pointRows(x,c.lines,pad,y,W-pad*2,{size:40,gap:12,lh:54,color:'#B5B7BC'});
+    drawLogoAt(x,ctx.logo,pad-12,H-(S?320:140),280);
+  },
+  // 5. Three tiles with ticks
+  tiles(x,W,H,c,S,ctx){
+    x.fillStyle='#08090A'; x.fillRect(0,0,W,H);
+    const g=x.createRadialGradient(W*0.1,H,0,W*0.1,H,W*1.2); g.addColorStop(0,'rgba(232,48,42,0.30)'); g.addColorStop(1,'rgba(232,48,42,0)'); x.fillStyle=g; x.fillRect(0,0,W,H); grain(x,W,H,0.10);
+    const pad=76, top=S?270:96; drawLogoAt(x,ctx.logo,pad-12,top,320); if(c.tag) tagPill(x,c.tag,W-pad,top+8,{right:true});
+    const f=fitHead(x,String(c.headline||'').toUpperCase(),'700',W-pad*2,3,S?140:120,76,6); let y=top+(S?118:114)+f.size*0.84;
+    x.fillStyle='#F5F5F5'; x.font='700 '+f.size+'px '+HEAD; for(const l of f.lines){ x.fillText(l,pad,y); y+=f.size*0.96; }
+    y+=46; const rows=(c.lines||[]).slice(0,3), bottom=H-(S?300:130), gap=26, th=Math.min(S?340:250,(bottom-y-gap*(rows.length-1))/Math.max(1,rows.length)); y+=Math.max(0,(bottom-y-(th*rows.length+gap*(rows.length-1)))/2)*0.6;
+    rows.forEach((p,i)=>{ const ty=y+i*(th+gap); rrect(x,pad,ty,W-pad*2,th,30); x.fillStyle='rgba(255,255,255,0.055)'; x.fill(); x.strokeStyle='rgba(255,255,255,0.10)'; x.lineWidth=2; x.stroke();
+      const cx=pad+66, cy=ty+th/2; x.fillStyle=RED; x.beginPath(); x.arc(cx,cy,34,0,6.283); x.fill();
+      x.strokeStyle='#fff'; x.lineWidth=8; x.lineCap='round'; x.lineJoin='round'; x.beginPath(); x.moveTo(cx-14,cy+1); x.lineTo(cx-4,cy+12); x.lineTo(cx+16,cy-12); x.stroke();
+      x.fillStyle='#F0F0F1'; x.font='600 44px '+BODYF; const ls=wrapText(x,p,'600 44px '+BODYF,W-pad*2-190), lh=58, blockH=Math.min(ls.length,3)*lh; let ly=cy-blockH/2+lh*0.74; ls.slice(0,3).forEach(l=>{ x.fillText(l,pad+130,ly); ly+=lh; }); });
+  },
+  // 6. Bold red block with a slanted edge
+  redblock(x,W,H,c,S,ctx){
+    x.fillStyle='#08090A'; x.fillRect(0,0,W,H);
+    const cut=S?1020:700, slant=110;
+    const g=x.createLinearGradient(0,0,W,cut); g.addColorStop(0,'#F0382F'); g.addColorStop(1,'#B81E19');
+    x.fillStyle=g; x.beginPath(); x.moveTo(0,0); x.lineTo(W,0); x.lineTo(W,cut-slant); x.lineTo(0,cut); x.closePath(); x.fill();
+    x.save(); x.clip(); grain(x,W,H,0.22,'multiply'); x.restore();
+    const pad=84, top=S?270:104; if(c.tag) tagPill(x,c.tag,pad,top,{bg:'#0A0A0A'});
+    x.save(); x.fillStyle='#0A0A0A'; const hy0=top+(S?170:150), f=fitHead(x,String(c.headline||'').toUpperCase(),'700',W-pad*2,5,S?230:196,70,8,cut-slant-40-hy0,0.92); x.font='700 '+f.size+'px '+HEAD;
+    let y=hy0+f.size*0.6; for(const l of f.lines){ x.fillText(l,pad,y); y+=f.size*0.92; } x.restore();
+    let py=cut+(S?90:96); pointRows(x,c.lines,pad,py,W-pad*2,{size:44,gap:20,lh:58});
+    drawLogoAt(x,ctx.logo,pad-12,H-(S?330:150),300); x.fillStyle='#7C7F86'; x.font='500 32px '+BODYF; x.textAlign='right'; x.fillText(handleText(),W-pad,H-(S?285:104)); x.textAlign='left';
+  },
+  // 7. Photo, full bleed, headline along the bottom
+  photoFull(x,W,H,c,S,ctx){
+    x.fillStyle='#08090A'; x.fillRect(0,0,W,H); coverRect(x,ctx.photo,0,0,W,H,0.35); gradePhoto(x,0,0,W,H);
+    let g=x.createLinearGradient(0,0,0,H*0.24); g.addColorStop(0,'rgba(6,7,8,0.62)'); g.addColorStop(1,'rgba(6,7,8,0)'); x.fillStyle=g; x.fillRect(0,0,W,H*0.24);
+    g=x.createLinearGradient(0,H*0.30,0,H); g.addColorStop(0,'rgba(6,7,8,0)'); g.addColorStop(0.62,'rgba(6,7,8,0.82)'); g.addColorStop(1,'rgba(6,7,8,0.96)'); x.fillStyle=g; x.fillRect(0,H*0.30,W,H*0.70);
+    const pad=80, top=S?262:84; drawLogoAt(x,ctx.logo,pad-12,top,330); if(c.tag) tagPill(x,c.tag,pad,top+110);
+    const pts=(c.lines||[]).slice(0,3); const base=H-(S?270:84);
+    x.font='500 38px '+BODYF; let ph=0; const pl=pts.map(p=>wrapText(x,p,'500 38px '+BODYF,W-pad*2-40).slice(0,2)); pl.forEach(l=>ph+=l.length*50+14);
+    const f=fitHead(x,String(c.headline||'').toUpperCase(),'700',W-pad*2,4,S?190:158,70,6,base-ph-top-(S?330:230),0.96);
+    let y=base-ph+38; x.fillStyle='rgba(255,255,255,0.92)';
+    pl.forEach(ls=>{ x.fillStyle=RED; x.fillRect(pad,y-26,12,12); x.fillStyle='rgba(255,255,255,0.92)'; x.font='500 38px '+BODYF; ls.forEach(l=>{ shadowText(x,l,pad+38,y,12); y+=50; }); y+=14; });
+    let hy=base-ph-34-8; x.fillStyle=RED; x.fillRect(pad,hy,110,8); hy-=38-0;
+    x.font='700 '+f.size+'px '+HEAD; x.fillStyle='#fff'; const ys=[]; let yy=hy-(f.lines.length-1)*f.size*0.96; f.lines.forEach(l=>{ shadowText(x,l,pad,yy,26); yy+=f.size*0.96; });
+  },
+  // 8. Photo on top with a slanted cut, text panel below
+  photoSplit(x,W,H,c,S,ctx){
+    x.fillStyle='#09090B'; x.fillRect(0,0,W,H); const ph=Math.round(H*(S?0.50:0.54)), slant=100;
+    x.save(); x.beginPath(); x.moveTo(0,0); x.lineTo(W,0); x.lineTo(W,ph-slant); x.lineTo(0,ph); x.closePath(); x.clip(); coverRect(x,ctx.photo,0,0,W,ph,0.35); gradePhoto(x,0,0,W,ph);
+    const g=x.createLinearGradient(0,0,0,ph*0.35); g.addColorStop(0,'rgba(6,7,8,0.6)'); g.addColorStop(1,'rgba(6,7,8,0)'); x.fillStyle=g; x.fillRect(0,0,W,ph*0.35); x.restore();
+    x.fillStyle=RED; x.beginPath(); x.moveTo(0,ph); x.lineTo(W,ph-slant); x.lineTo(W,ph-slant+16); x.lineTo(0,ph+16); x.closePath(); x.fill();
+    const pad=80, top=S?262:84; drawLogoAt(x,ctx.logo,pad-12,top,320); if(c.tag) tagPill(x,c.tag,W-pad,top+6,{right:true});
+    const sBot=ptsHeight(x,c.lines,40,W-pad*2,52,12), f=fitHead(x,String(c.headline||'').toUpperCase(),'700',W-pad*2,3,S?150:124,60,6,H-ph-(S?96:80)-22-sBot-(S?300:50),0.96); let y=ph+(S?96:80)+f.size*0.62;
+    x.fillStyle='#F5F5F5'; x.font='700 '+f.size+'px '+HEAD; for(const l of f.lines){ x.fillText(l,pad,y); y+=f.size*0.96; }
+    y+=22; pointRows(x,c.lines,pad,y,W-pad*2,{size:40,gap:12,lh:52,color:'#CFD0D3'});
+  },
+  // 9. Framed photo with a red offset block
+  photoFrame(x,W,H,c,S,ctx){
+    x.fillStyle='#0A0B0C'; x.fillRect(0,0,W,H); blotches(x,W,H,4,'255,255,255',0.04); grain(x,W,H,0.12);
+    const pad=70, top=S?270:70, fw=W-pad*2, fh=S?650:520, fx=pad, fy=top+(S?110:96);
+    drawLogoAt(x,ctx.logo,pad-12,top,300); if(c.tag) tagPill(x,c.tag,W-pad,top+4,{right:true});
+    rrect(x,fx+22,fy+22,fw,fh,34); x.fillStyle=RED; x.fill();
+    x.save(); rrect(x,fx,fy,fw,fh,34); x.clip(); coverRect(x,ctx.photo,fx,fy,fw,fh,0.35); gradePhoto(x,fx,fy,fw,fh); x.restore();
+    rrect(x,fx,fy,fw,fh,34); x.strokeStyle='rgba(255,255,255,0.14)'; x.lineWidth=3; x.stroke();
+    const f=fitHead(x,String(c.headline||'').toUpperCase(),'700',W-pad*2-30,3,S?132:104,60,6,(S?420:300),0.96); let y=fy+fh+(S?96:80)+f.size*0.62;
+    x.fillStyle='#F5F5F5'; x.font='700 '+f.size+'px '+HEAD; for(const l of f.lines){ x.fillText(l,pad,y); y+=f.size*0.96; }
+    y+=(S?10:0); const row=(c.lines||[]).slice(0,3).map(String);
+    if(row.length){ const fs=S?36:32, lh=S?46:42; x.font='500 '+fs+'px '+BODYF; let yy=y+12; for(const p of row){ const ls=wrapText(x,p,'500 '+fs+'px '+BODYF,W-pad*2-40); if(yy+(ls.length-1)*lh>H-(S?260:50)) break; x.fillStyle=RED; x.fillRect(pad,yy-24,12,12); x.fillStyle='#C9CACD'; ls.forEach((l,k)=>x.fillText(l,pad+34,yy+k*lh)); yy+=ls.length*lh+(S?14:10); } }
+  },
+  // 10. Red-and-black duotone photo, centred headline
+  photoDuo(x,W,H,c,S,ctx){
+    x.fillStyle='#08090A'; x.fillRect(0,0,W,H); coverRect(x,ctx.photo,0,0,W,H,0.35);
+    x.save(); x.globalCompositeOperation='saturation'; x.fillStyle='#000'; x.fillRect(0,0,W,H); x.globalCompositeOperation='multiply'; const g=x.createLinearGradient(0,0,W,H); g.addColorStop(0,'#FF4A3F'); g.addColorStop(1,'#B11B16'); x.globalAlpha=0.92; x.fillStyle=g; x.fillRect(0,0,W,H); x.restore();
+    x.save(); x.globalCompositeOperation='multiply'; const v=x.createRadialGradient(W/2,H*0.45,H*0.15,W/2,H*0.5,H*0.8); v.addColorStop(0,'rgba(255,255,255,1)'); v.addColorStop(1,'rgba(40,10,10,1)'); x.fillStyle=v; x.fillRect(0,0,W,H); x.restore();
+    let g2=x.createLinearGradient(0,H*0.4,0,H); g2.addColorStop(0,'rgba(6,7,8,0)'); g2.addColorStop(1,'rgba(6,7,8,0.78)'); x.fillStyle=g2; x.fillRect(0,H*0.4,W,H*0.6); grain(x,W,H,0.14);
+    const pad=84, top=S?262:84; drawLogoAt(x,ctx.logo,(W-340)/2,top,340);
+    const f=fitHead(x,String(c.headline||'').toUpperCase(),'700',W-pad*2,5,S?260:210,70,8,H*0.46,0.92); const dBot=(S?300:90), ptsB=(c.lines||[]).slice(0,3).reduce((n,p)=>{ x.font='600 40px '+BODYF; return n+Math.min(2,wrapText(x,p,'600 40px '+BODYF,W-pad*2-80).length)*52+8; },0)+110, aTop=top+170, aBot=H-dBot-ptsB; const total=f.lines.length*f.size*0.92; let y=aTop+Math.max(0,(aBot-aTop-total)/2)+f.size*0.72;
+    x.textAlign='center'; x.fillStyle='#fff'; x.font='700 '+f.size+'px '+HEAD; for(const l of f.lines){ shadowText(x,l,W/2,y,34); y+=f.size*0.92; }
+    y+=26; x.fillStyle='#fff'; x.fillRect(W/2-55,y,110,8); y+=70; x.font='600 40px '+BODYF; x.fillStyle='rgba(255,255,255,0.94)';
+    for(const p of (c.lines||[]).slice(0,3)){ const ls=wrapText(x,p,'600 40px '+BODYF,W-pad*2-80).slice(0,2); for(const l of ls){ shadowText(x,l,W/2,y,14); y+=52; } y+=8; }
+    x.textAlign='left';
+  }
+};
+const LAYOUT_INFO=[ ['classic','Classic (dark with red glow)',false],['statement','Big statement',false],['bone','Light paper',false],['quote','Quote',false],['tiles','Tick tiles',false],['redblock','Red block',false],['photoFull','Photo, full bleed',true],['photoSplit','Photo, split',true],['photoFrame','Photo, framed',true],['photoDuo','Photo, red duotone',true] ];
 async function renderCard(canvas, card, story){
   const W=1080, H=story?1920:1350; canvas.width=W; canvas.height=H; const x=canvas.getContext('2d');
-  try{ await document.fonts.load('700 100px "Barlow Condensed"'); await document.fonts.load('500 40px "Inter"'); }catch(e){}
-  x.fillStyle='#08090A'; x.fillRect(0,0,W,H);
-  const g=x.createRadialGradient(W*0.85,0,0,W*0.85,0,W*0.9); g.addColorStop(0,'rgba(232,48,42,0.28)'); g.addColorStop(1,'rgba(232,48,42,0)'); x.fillStyle=g; x.fillRect(0,0,W,H);
-  const pad=86, top=story?260:120;
-  const logo=await loadLogo(); if(logo) x.drawImage(logo,40,205,432,100,pad-12,top,372,86);
-  const wrap=(t,font,max)=>{ x.font=font; const w=String(t).split(/\s+/), out=[]; let l=''; for(const k of w){ const tt=l?l+' '+k:k; if(x.measureText(tt).width>max&&l){ out.push(l); l=k; } else l=tt; } if(l) out.push(l); return out; };
-  let y=top+(story?240:210);
-  x.fillStyle='#F5F5F5';
-  let size=story?150:132, lines;
-  for(;size>=80;size-=6){ lines=wrap(String(card.headline||'').toUpperCase(),'700 '+size+'px "Barlow Condensed", Impact, sans-serif',W-pad*2); if(lines.length<=3) break; }
-  x.font='700 '+size+'px "Barlow Condensed", Impact, sans-serif';
-  for(const l of lines){ x.fillText(l,pad,y); y+=size*0.98; }
-  y+=36; x.fillStyle='#E8302A'; x.fillRect(pad,y,120,8); y+=84;
-  x.fillStyle='#D8D8DA';
-  for(const p of (card.lines||[]).slice(0,3)){
-    const ls=wrap(p,'500 46px "Inter", Arial, sans-serif',W-pad*2-60);
-    x.fillStyle='#E8302A'; x.fillRect(pad,y-30,14,14);
-    x.fillStyle='#D8D8DA'; x.font='500 46px "Inter", Arial, sans-serif';
-    for(const l of ls){ x.fillText(l,pad+44,y); y+=62; }
-    y+=26;
-  }
-  x.fillStyle='#8A8D93'; x.font='500 34px "Inter", Arial, sans-serif';
-  x.fillText(S.handle?(S.handle.startsWith('@')?S.handle:'@'+S.handle):'@redline.training', pad, H-(story?260:96));
+  try{ await document.fonts.load('700 100px "Barlow Condensed"'); await document.fonts.load('600 100px "Barlow Condensed"'); await document.fonts.load('500 40px "Inter"'); await document.fonts.load('600 40px "Inter"'); }catch(e){}
+  let id=card.layout&&LAYOUTS[card.layout]?card.layout:'classic'; const info=LAYOUT_INFO.find(l=>l[0]===id);
+  if(info&&info[2]&&!card.photo) id='statement';
+  x.textBaseline='alphabetic'; x.textAlign='left'; x.lineCap='butt';
+  LAYOUTS[id](x,W,H,card,!!story,{ logo:await loadLogo(), photo:card.photo||null });
 }
 const canvasJpeg = c => new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error('Could not make the image.')),'image/jpeg',0.92));
 
@@ -1119,24 +1279,73 @@ function reelMime(){
   return '';
 }
 const REEL_SECONDS=11.5;
+const REEL_LOOKS=['classic','center','bone','redblock','photo'];
+const REEL_HEAD='700 SIZEpx "Barlow Condensed", Impact, sans-serif';
 function reelLayout(x, card, W, H){
-  const pad=96, wrap=(t,font,max)=>{ x.font=font; const w=String(t).split(/\s+/), out=[]; let l=''; for(const k of w){ const tt=l?l+' '+k:k; if(x.measureText(tt).width>max&&l){ out.push(l); l=k; } else l=tt; } if(l) out.push(l); return out; };
-  let size=150, hl; for(;size>=84;size-=6){ hl=wrap(String(card.headline||'').toUpperCase(),'700 '+size+'px "Barlow Condensed", Impact, sans-serif',W-pad*2); if(hl.length<=4) break; }
-  const items=[]; let y=400+size;
-  hl.forEach(l=>{ items.push({t:l,font:'700 '+size+'px "Barlow Condensed", Impact, sans-serif',color:'#F5F5F5',x:pad,y,at:0.5,dur:0.7,dx:0,dy:50}); y+=size*0.98; });
-  const barY=y+30; y=barY+110;
+  const look=card.reelLook||'classic', pad=96, RED_='#E8302A';
+  const wrap=(t,font,max)=>{ x.font=font; const w=String(t).split(/\s+/), out=[]; let l=''; for(const k of w){ const tt=l?l+' '+k:k; if(x.measureText(tt).width>max&&l){ out.push(l); l=k; } else l=tt; } if(l) out.push(l); return out; };
+  const C = look==='bone' ? {head:'#111111',body:'#2A2B2E',bar:RED_} : look==='redblock' ? {head:'#0A0A0A',body:'#F5F5F5',bar:'#0A0A0A'} : {head:'#F5F5F5',body:'#D8D8DA',bar:RED_};
+  const maxLines = look==='redblock'?3:4, startSize = look==='redblock'?140:(look==='photo'?128:150);
+  const cx = look==='center';
+  const hw = W-pad*2;
+  let size=startSize, hl; for(;size>=84;size-=6){ hl=wrap(String(card.headline||'').toUpperCase(),REEL_HEAD.replace('SIZE',size),hw); if(hl.length<=maxLines) break; }
+  const y0 = look==='center'?500: look==='bone'?440: look==='redblock'?360: 400;
+  const items=[]; let y=y0+size;
+  hl.forEach(l=>{ items.push({t:l,font:REEL_HEAD.replace('SIZE',size),color:C.head,x:cx?W/2:pad,al:cx?'center':'left',y,at:0.5,dur:0.7,dx:0,dy:50}); y+=size*0.98; });
+  const lay={ items, pad, look, barColor:C.bar, barCx:cx, photo:null, pc:null };
+  let barY=y+30; y=barY+110; if(look==='redblock') y=Math.max(y,1140);
+  const fontB='500 52px "Inter", Arial, sans-serif';
   (card.lines||[]).slice(0,3).forEach((p,i)=>{
-    const ls=wrap(p,'500 52px "Inter", Arial, sans-serif',W-pad*2-60), at=3.0+i*2.2;
-    items.push({bullet:true,x:pad,y:y-34,at,dur:0.5,dx:-60,dy:0,color:'#E8302A'});
-    ls.forEach(l=>{ items.push({t:l,font:'500 52px "Inter", Arial, sans-serif',color:'#D8D8DA',x:pad+46,y,at,dur:0.5,dx:-60,dy:0}); y+=70; });
-    y+=34;
+    const at=3.0+i*2.2;
+    if(look==='bone'){
+      const ls=wrap(p,fontB,hw-120);
+      items.push({t:'0'+(i+1),font:'700 70px "Barlow Condensed", Impact, sans-serif',color:RED_,x:pad,al:'left',y:y+4,at,dur:0.5,dx:-60,dy:0});
+      ls.forEach(l=>{ items.push({t:l,font:fontB,color:C.body,x:pad+120,al:'left',y,at,dur:0.5,dx:-60,dy:0}); y+=70; });
+      y+=38;
+    } else if(cx){
+      const ls=wrap(p,fontB,hw);
+      items.push({dash:true,x:W/2,y:y-62,at,dur:0.5,dx:0,dy:0,color:RED_});
+      ls.forEach(l=>{ items.push({t:l,font:fontB,color:C.body,x:W/2,al:'center',y,at,dur:0.5,dx:0,dy:30}); y+=70; });
+      y+=76;
+    } else {
+      const ls=wrap(p,fontB,hw-60);
+      items.push({bullet:true,x:pad,y:y-34,at,dur:0.5,dx:-60,dy:0,color:RED_});
+      ls.forEach(l=>{ items.push({t:l,font:fontB,color:C.body,x:pad+46,al:'left',y,at,dur:0.5,dx:-60,dy:0}); y+=70; });
+      y+=34;
+    }
   });
-  return { items, barY, pad };
+  if(look==='photo'){ // sit the whole block low, over the darkened lower half
+    const delta=(H-300)-(y-34); items.forEach(it=>{ it.y+=delta; }); barY+=delta;
+  }
+  lay.barY=barY; return lay;
+}
+function reelBg(bx, look, W, H){
+  if(look==='center'){
+    bx.fillStyle='#08090A'; bx.fillRect(0,0,W,H);
+    let g=bx.createRadialGradient(W/2,H*1.02,0,W/2,H*1.02,W*1.1); g.addColorStop(0,'rgba(232,48,42,0.34)'); g.addColorStop(1,'rgba(232,48,42,0)'); bx.fillStyle=g; bx.fillRect(0,0,W,H);
+    g=bx.createRadialGradient(W/2,H/2,H*0.25,W/2,H/2,H*0.85); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.6)'); bx.fillStyle=g; bx.fillRect(0,0,W,H); grain(bx,W,H,0.08);
+  } else if(look==='bone'){
+    bx.fillStyle='#E7E2D8'; bx.fillRect(0,0,W,H); grain(bx,W,H,0.10);
+    bx.fillStyle='#0A0B0C'; bx.fillRect(0,0,W,390); bx.fillStyle='#E8302A'; bx.fillRect(0,390,W,10);
+  } else if(look==='redblock'){
+    bx.fillStyle='#0A0B0C'; bx.fillRect(0,0,W,H);
+    const g=bx.createRadialGradient(W*0.1,H,0,W*0.1,H,W*1.2); g.addColorStop(0,'rgba(232,48,42,0.22)'); g.addColorStop(1,'rgba(232,48,42,0)'); bx.fillStyle=g; bx.fillRect(0,0,W,H);
+    bx.fillStyle='#E8302A'; bx.beginPath(); bx.moveTo(0,0); bx.lineTo(W,0); bx.lineTo(W,960); bx.lineTo(0,1060); bx.closePath(); bx.fill(); grain(bx,W,H,0.08);
+  } else if(look==='photo'){
+    let g=bx.createLinearGradient(0,0,0,H*0.32); g.addColorStop(0,'rgba(0,0,0,0.6)'); g.addColorStop(1,'rgba(0,0,0,0)'); bx.fillStyle=g; bx.fillRect(0,0,W,H*0.32);
+    g=bx.createLinearGradient(0,H*0.3,0,H*0.82); g.addColorStop(0,'rgba(8,9,10,0)'); g.addColorStop(1,'rgba(8,9,10,0.9)'); bx.fillStyle=g; bx.fillRect(0,H*0.3,W,H*0.7);
+  } else {
+    bx.fillStyle='#08090A'; bx.fillRect(0,0,W,H);
+    const g=bx.createRadialGradient(W*0.85,0,0,W*0.85,0,W*1.1); g.addColorStop(0,'rgba(232,48,42,0.30)'); g.addColorStop(1,'rgba(232,48,42,0)'); bx.fillStyle=g; bx.fillRect(0,0,W,H);
+  }
 }
 function drawReelFrame(x, t, card, lay, bg, logo){
-  const W=1080,H=1920; x.drawImage(bg,0,0);
+  const W=1080,H=1920;
+  if(lay.pc){ const z=1+0.08*Math.min(1,t/REEL_SECONDS), w=W*z, h=H*z; x.globalAlpha=1; x.drawImage(lay.pc,(W-w)/2,(H-h)/2,w,h); }
+  x.globalAlpha=1; x.drawImage(bg,0,0);
   const ease=u=>1-Math.pow(1-Math.min(1,Math.max(0,u)),3);
   const endT=REEL_SECONDS-2.6, dim = t>endT ? Math.max(0.07, 1-ease((t-endT)/0.6)*0.93) : 1;
+  if(t>endT&&lay.look&&lay.look!=='classic'&&lay.look!=='center'){ x.globalAlpha=ease((t-endT)/0.6)*0.95; x.fillStyle='#08090A'; x.fillRect(0,0,W,H); }
   x.globalAlpha=1;
   if(logo){ x.globalAlpha=ease(t/0.6)*(t>endT?dim:1); x.drawImage(logo,40,205,432,100,lay.pad-12,260,372,86); }
   x.textBaseline='alphabetic';
@@ -1144,9 +1353,10 @@ function drawReelFrame(x, t, card, lay, bg, logo){
     const u=ease((t-it.at)/it.dur); if(u<=0) continue;
     x.globalAlpha=u*dim;
     if(it.bullet){ x.fillStyle=it.color; x.fillRect(it.x+it.dx*(1-u),it.y,16,16); }
-    else { x.fillStyle=it.color; x.font=it.font; x.fillText(it.t,it.x+it.dx*(1-u),it.y+it.dy*(1-u)); }
+    else if(it.dash){ x.fillStyle=it.color; x.fillRect(it.x-34,it.y,68,7); }
+    else { x.fillStyle=it.color; x.font=it.font; x.textAlign=it.al||'left'; x.fillText(it.t,it.x+it.dx*(1-u),it.y+it.dy*(1-u)); x.textAlign='left'; }
   }
-  const bu=ease((t-1.9)/0.6); if(bu>0){ x.globalAlpha=bu*dim; x.fillStyle='#E8302A'; x.fillRect(lay.pad,lay.barY,140*bu,9); }
+  const bu=ease((t-1.9)/0.6); if(bu>0){ x.globalAlpha=bu*dim; x.fillStyle=lay.barColor||'#E8302A'; if(lay.barCx) x.fillRect(W/2-70*bu,lay.barY,140*bu,9); else x.fillRect(lay.pad,lay.barY,140*bu,9); }
   if(t>endT){
     const u=ease((t-endT-0.2)/0.6); x.globalAlpha=u; x.textAlign='center';
     x.fillStyle='#BDBFC4'; x.font='600 54px "Inter", Arial, sans-serif'; x.fillText('DM me the word',W/2,H/2-60);
@@ -1199,12 +1409,11 @@ async function makeReelBlob(card, onTick){
   try{ await document.fonts.load('700 100px "Barlow Condensed"'); await document.fonts.load('500 40px "Inter"'); }catch(e){}
   const W=1080,H=1920;
   const bg=document.createElement('canvas'); bg.width=W; bg.height=H; const bx=bg.getContext('2d');
-  if(card.demo){ demoBG(bx,W,H,0.3); } else {
-  bx.fillStyle='#08090A'; bx.fillRect(0,0,W,H);
-  const g=bx.createRadialGradient(W*0.85,0,0,W*0.85,0,W*1.1); g.addColorStop(0,'rgba(232,48,42,0.30)'); g.addColorStop(1,'rgba(232,48,42,0)'); bx.fillStyle=g; bx.fillRect(0,0,W,H); }
+  if(card.demo){ demoBG(bx,W,H,0.3); } else { if(card.reelLook==='photo'&&!card.photo) card.reelLook='classic'; reelBg(bx,card.reelLook||'classic',W,H); }
   const logo=await loadLogo(), cv=document.createElement('canvas'); cv.width=W; cv.height=H; const x=cv.getContext('2d');
   const dImg = card.demo ? await loadImg(card.demo.file) : null;
   const lay = card.demo ? demoReelLayout(x,card) : reelLayout(x,card,W,H);
+  if(!card.demo&&card.reelLook==='photo'&&card.photo){ const pcv=document.createElement('canvas'); pcv.width=W; pcv.height=H; const px=pcv.getContext('2d'); px.fillStyle='#08090A'; px.fillRect(0,0,W,H); coverRect(px,card.photo,0,0,W,H,0.4); gradePhoto(px,0,0,W,H); lay.pc=pcv; }
   const paint = t => card.demo ? drawDemoReelFrame(x,t,card,lay,dImg,bg,logo) : drawReelFrame(x,t,card,lay,bg,logo);
   const stream=cv.captureStream(30), rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:4000000}), chunks=[];
   rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
@@ -1330,6 +1539,63 @@ async function ovTextFor(topic){
   const cap=String(j.caption||'').trim()+((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
   return { ov, cap };
 }
+
+// ---------- Photos for the photo layouts: your own photos first, then free Pexels stock ----------
+let STOCK_OK=null;
+const loadImgUrl=url=>new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('Could not read the photo.')); i.src=url; });
+async function stockPhoto(query){
+  if(DEMO){ if(window.__mockStock) return window.__mockStock(query); const e=new Error('Stock photos need the live HQ.'); e.noKey=true; throw e; }
+  const { data } = await sb.auth.getSession();
+  let skip=[]; try{ skip=JSON.parse(lget('hq:stockUsed')||'[]'); }catch(e){}
+  const r=await fetch(SUPABASE_URL+'/functions/v1/instagram',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+data.session.access_token},body:JSON.stringify({action:'stock',query,skip})});
+  const j=await r.json().catch(()=>({}));
+  if(j.noKey){ const e=new Error(j.error||'Stock photos are not connected.'); e.noKey=true; throw e; }
+  if(!r.ok||j.error||!j.data) throw new Error(j.error||('Stock photo request failed ('+r.status+')'));
+  skip.push(j.id); lset('hq:stockUsed',JSON.stringify(skip.slice(-80)));
+  return loadImgUrl(j.data);
+}
+const DRAWN_LAYOUTS=['statement','bone','quote','tiles','redblock'], PHOTO_LAYOUTS=['photoFull','photoSplit','photoFrame','photoDuo'];
+const shuffleArr=a=>{ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
+// Gives each animated text reel its own look. Never repeats the last one used, and the photo look only runs when a photo can be found.
+async function chooseReelLook(card, pc, query){
+  let last=[]; try{ last=JSON.parse(lget('hq:lastReelLooks')||'[]'); }catch(e){}
+  const order=shuffleArr(REEL_LOOKS.filter(l=>l!==last[last.length-1]));
+  let pick='classic';
+  for(const l of order){
+    if(l!=='photo'){ pick=l; break; }
+    let ph=null;
+    if(STOCK_OK!==false){ try{ ph=await stockPhoto(String(query||card.headline||'gym training').slice(0,60)); STOCK_OK=true; }catch(e){ if(e.noKey) STOCK_OK=false; } }
+    if(!ph&&pc&&pc.own&&pc.own.length){ try{ ph=await ownPhotoFor(pc.own,pc.used); }catch(e){} }
+    if(ph){ card.photo=ph; pick='photo'; break; }
+  }
+  card.reelLook=pick; last.push(pick); try{ lset('hq:lastReelLooks',JSON.stringify(last.slice(-6))); }catch(e){}
+  return pick;
+}
+// Chooses a look for each designed post so neighbours never match, photo posts are spread out, and the old look only shows up now and then.
+function planLayouts(n, photosOk){
+  let last=[]; try{ last=JSON.parse(lget('hq:lastLayouts')||'[]'); }catch(e){}
+  const nPhoto=photosOk?Math.min(PHOTO_LAYOUTS.length,Math.round(n*0.43)):0, nClassic=(n>=5&&Math.random()<0.6)?1:0, nDrawn=Math.max(0,n-nPhoto-nClassic);
+  let drawn=[]; while(drawn.length<nDrawn) drawn=drawn.concat(shuffleArr(DRAWN_LAYOUTS)); drawn=drawn.slice(0,nDrawn);
+  const items=shuffleArr(PHOTO_LAYOUTS).slice(0,nPhoto).concat(drawn, nClassic?['classic']:[]);
+  const isP=id=>PHOTO_LAYOUTS.includes(id); let best=items;
+  for(let t=0;t<300;t++){ const c=shuffleArr(items); let ok=c.length===0||c[0]!==last[last.length-1];
+    for(let i=1;i<c.length&&ok;i++){ if(c[i]===c[i-1]||(isP(c[i])&&isP(c[i-1]))) ok=false; } best=c; if(ok) break; }
+  return best.slice(0,n);
+}
+async function ownPhotoFor(own, used){
+  const it=own.find(x=>!used.has(x.id)); if(!it) return null; used.add(it.id);
+  const f=await libFile(it); const m=await ovLoadMedia(f,false);
+  try{ await db.update('ig_library','id',it.id,{times_used:(it.times_used||0)+1,last_used:new Date().toISOString()}); }catch(e){}
+  return m.src;
+}
+async function getPostPhoto(query, pc){
+  const tryOwn=async()=>{ try{ return await ownPhotoFor(pc.own,pc.used); }catch(e){ return null; } };
+  const tryStock=async()=>{ if(STOCK_OK===false) return null;
+    try{ const im=await stockPhoto(query); STOCK_OK=true; return im; }
+    catch(e){ if(e.noKey){ STOCK_OK=false; GEN_NOTES.push('Stock photos are not connected yet, so photo days use your own photos or a designed layout. To turn stock photos on, add the free Pexels key (steps in the guide).'); } else GEN_NOTES.push('A stock photo could not be fetched ('+(e.message||e)+'), so that day uses a designed layout.'); return null; } };
+  const order=(pc.k%2===0&&pc.own.length)?[tryOwn,tryStock]:[tryStock,tryOwn]; pc.k++;
+  for(const f of order){ const r=await f(); if(r) return r; } return null;
+}
 async function generateWeek(reels, demos, tick, libN){
   libN=libN||0; GEN_NOTES=[];
   const rows=await planRows(); const recent=(await (async()=>{ if(DEMO) return rd('ig_schedule'); const {data}=await sb.from('ig_schedule').select('label,run_at').order('run_at',{ascending:false}).limit(40); return data||[]; })()).map(r=>r.label).filter(Boolean).slice(0,30);
@@ -1337,7 +1603,7 @@ async function generateWeek(reels, demos, tick, libN){
   const last=rows.filter(r=>r.status!=='skipped').map(r=>r.run_at).sort().pop();
   if(last){ const ld=new Date(last); ld.setHours(0,0,0,0); ld.setDate(ld.getDate()+1); if(ld>start) start=ld; }
   tick('Writing the week...');
-  const j=await aiJSON('Plan 7 days of Instagram content for my coaching business.\nFor EACH day give one feed post idea (a useful, specific coaching tip a real coach would say, drawn from my niche), plus two story call-to-action cards.\nReturn JSON only: {"days":[{"headline":"punchy, max 7 words, no full stop","lines":["3 short specific points, max 10 words each"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me about this post, e.g. PROTEIN","cta1":{"headline":"max 8 words, a low-pressure invitation tied to my offer, no price, no promises","word":"ONE uppercase DM keyword"},"cta2":{"headline":"max 8 words, a different angle to cta1","word":"ONE uppercase DM keyword"}}]}\nExactly 7 days. Vary the topics (training, nutrition, recovery, mindset, running, common mistakes). Do not sound like an AI: no "Here\'s the thing", no triplets of adjectives, no hype. '+(recent.length?'Do not repeat or closely echo these recent topics: '+recent.join(' | ')+'.':''), 6000);
+  const j=await aiJSON('Plan 7 days of Instagram content for my coaching business.\nFor EACH day give one feed post idea (a useful, specific coaching tip a real coach would say, drawn from my niche), plus two story call-to-action cards.\nReturn JSON only: {"days":[{"headline":"punchy, max 7 words, no full stop","lines":["3 short specific points, max 10 words each"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me about this post, e.g. PROTEIN","tag":"ONE word topic label such as TRAINING, NUTRITION, RECOVERY, MINDSET, RUNNING or MISTAKES","photo":"2 to 4 word search for a real stock photo that fits this post, such as barbell squat gym, kettlebell swing, running track sunrise or healthy meal prep","cta1":{"headline":"max 8 words, a low-pressure invitation tied to my offer, no price, no promises","word":"ONE uppercase DM keyword"},"cta2":{"headline":"max 8 words, a different angle to cta1","word":"ONE uppercase DM keyword"}}]}\nExactly 7 days. Vary the topics (training, nutrition, recovery, mindset, running, common mistakes). Do not sound like an AI: no "Here\'s the thing", no triplets of adjectives, no hype. '+(recent.length?'Do not repeat or closely echo these recent topics: '+recent.join(' | ')+'.':''), 6000);
   const days=(j.days||[]).slice(0,7); if(days.length<7) throw new Error('The AI only wrote '+days.length+' days. Try again.');
   const reelDays = reels>0 ? [1,3,5,6].slice(0,reels) : [];
   const demoDays = ({0:[],1:[2],2:[1,4],3:[0,2,4]})[demos]||[];
@@ -1363,9 +1629,13 @@ async function generateWeek(reels, demos, tick, libN){
     for(let k=0;k<ld.length;k++){ const it=lib[k%lib.length]; libPick[ld[k]]={it}; }
   }
   const cv=document.createElement('canvas'); let made=0;
+  const plainDays=[0,1,2,3,4,5,6].filter(i=>!libPick[i]&&!demoPick[i]&&!reelDays.includes(i));
+  const lays=planLayouts(plainDays.length, true), layFor={}; plainDays.forEach((d,k)=>{ layFor[d]=lays[k]; });
+  let ownPhotos=[]; try{ ownPhotos=(await libraryRows()).filter(x=>x.url&&x.kind!=='video'); }catch(e){}
+  const pc={ own:ownPhotos.sort((a,b)=>(a.times_used||0)-(b.times_used||0)), used:new Set(), k:0 }, usedLay=[];
   for(let i=0;i<7;i++){
     const d=days[i], day=new Date(start); day.setDate(start.getDate()+i);
-    const card={headline:String(d.headline||'').trim(), lines:(d.lines||[]).map(String).slice(0,3), word:String(d.word||'COACH')};
+    const card={headline:String(d.headline||'').trim(), lines:(d.lines||[]).map(String).slice(0,3), word:String(d.word||'COACH'), tag:String(d.tag||'').replace(/[^A-Za-z ]/g,'').slice(0,18)};
     const cap=String(d.caption||'').trim()+((d.hashtags&&d.hashtags.length)?('\n\n'+d.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
     const mk=(r)=>Object.assign({owner:ME.id,caption:'',status:'draft'},r);
     let parent, handled=false;
@@ -1411,12 +1681,20 @@ async function generateWeek(reels, demos, tick, libN){
       }
     } else if(reelDays.includes(i)){
       tick('Day '+(i+1)+' of 7: recording the reel (keep this tab open)...');
+      await chooseReelLook(card,pc,d.photo);
       const blob=await makeReelBlob(card,u=>tick('Day '+(i+1)+' of 7: recording the reel '+Math.round(u*100)+'% (keep this tab open)'));
       const url=await putMedia(blob,'mp4','video/mp4');
       [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:cap,label:card.headline,run_at:atLocal(day,T.post)})]);
       await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+card.headline,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
     } else {
       tick('Day '+(i+1)+' of 7: designing the post...');
+      card.layout=layFor[i]||'statement';
+      if(PHOTO_LAYOUTS.includes(card.layout)){
+        tick('Day '+(i+1)+' of 7: finding a photo...');
+        const ph=await getPostPhoto(String(d.photo||'gym training').slice(0,60), pc);
+        if(ph) card.photo=ph; else card.layout=shuffleArr(DRAWN_LAYOUTS.filter(l=>!usedLay.includes(l))).concat(DRAWN_LAYOUTS)[0];
+      }
+      usedLay.push(card.layout);
       await renderCard(cv,card,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
       await renderCard(cv,card,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
       [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:cap,label:card.headline,run_at:atLocal(day,T.post)})]);
@@ -1429,6 +1707,7 @@ async function generateWeek(reels, demos, tick, libN){
     }
     made++;
   }
+  try{ lset('hq:lastLayouts',JSON.stringify(usedLay.slice(-7))); }catch(e){}
   return made;
 }
 const KIND_LABEL={photo:'Post',reel:'Reel',story_photo:'Story',story_video:'Story'};
@@ -1501,6 +1780,7 @@ function igPostSheet(opts){
     <div class="fld"><label>What are you posting?</label><select class="sel" id="igKind"></select></div>
     <div id="igAI">
       <div class="fld"><label>Topic or prompt</label><textarea class="ta" id="igTopic" rows="3" placeholder="e.g. why most people stall on protein, or: 3 mistakes new runners make"></textarea></div>
+      <div class="fld"><label>Look</label><select class="sel" id="igStyle"><option value="auto">Surprise me (a designed layout)</option>${LAYOUT_INFO.map(l=>`<option value="${l[0]}">${l[1]}${l[2]?' (needs a photo)':''}</option>`).join('')}</select></div>
       <button class="btn" id="igMake" type="button">Make it</button>
       <div id="igPrevWrap" style="display:none;margin-top:14px">
         <canvas id="igPrev" style="width:100%;border-radius:12px;border:1px solid var(--line,#222)"></canvas>
@@ -1548,6 +1828,11 @@ function igPostSheet(opts){
     };
     mode.onchange=()=>{ upd(); }; kind.onchange=()=>{ upd(); if(card) redraw(); }; upd();
     const redraw=async()=>{ if(!card) return; card.headline=$('#igHead',b).value; card.lines=$('#igPts',b).value.split('\n').map(t=>t.trim()).filter(Boolean).slice(0,3); await renderCard($('#igPrev',b), card, kind.value==='story_photo'); };
+    const applyStyle=async()=>{ if(!card) return; let v=$('#igStyle',b).value; if(v==='auto') v=(card._auto&&LAYOUTS[card._auto])?card._auto:(card._auto=['classic'].concat(DRAWN_LAYOUTS)[Math.floor(Math.random()*6)]);
+      card.layout=v;
+      if(PHOTO_LAYOUTS.includes(v)&&!card.photo){ try{ card.photo=await stockPhoto(card.photoQ||card.headline||'gym training'); }catch(e){ card.layout='statement'; toast(e.noKey?'Stock photos are not connected yet, so this uses a designed layout.':('No photo: '+(e.message||e)+'. Using a designed layout.')); } }
+      await redraw(); };
+    $('#igStyle',b).onchange=()=>{ if(card&&$('#igStyle',b).value==='auto') card._auto=null; applyStyle(); };
     $('#igHead',b).oninput=()=>redraw(); $('#igPts',b).oninput=()=>redraw();
     let libRows=[];
     libraryRows().then(r=>{ libRows=r; if(r.length){ $('#igLibWrap',b).style.display=''; $('#igLib',b).innerHTML+=r.map(x=>`<option value="${x.id}">${esc((x.kind==='video'?'Video: ':'Photo: ')+(x.name||'Untitled'))}</option>`).join(''); } }).catch(()=>{});
@@ -1573,11 +1858,11 @@ function igPostSheet(opts){
     });
     $('#igMake',b).onclick = ()=>working($('#igMake',b),'Writing...',async()=>{
       const topic=$('#igTopic',b).value.trim(); if(!topic) throw new Error('Type a topic first.');
-      const j = await aiJSON('Write one Instagram post for this topic: "'+topic+'".\nReturn JSON only: {"headline": "punchy, max 7 words, no full stop", "lines": ["3 short, specific points, max 10 words each"], "caption": "the caption in my voice, 350 characters or fewer, plain and human, one useful idea, a soft call to action like asking them to DM a word, no hashtags in it", "hashtags": ["max 5 relevant hashtags without the # symbol"], "word": "ONE uppercase keyword people can DM me, e.g. PROTEIN"}\nNo emojis unless they feel natural. Do not sound like an AI: no "Here\'s the thing", no lists of three adjectives, no hype.', 1500);
-      card={ headline:String(j.headline||'').trim(), lines:(j.lines||[]).map(String).slice(0,3), word:String(j.word||'COACH') };
+      const j = await aiJSON('Write one Instagram post for this topic: "'+topic+'".\nReturn JSON only: {"headline": "punchy, max 7 words, no full stop", "lines": ["3 short, specific points, max 10 words each"], "caption": "the caption in my voice, 350 characters or fewer, plain and human, one useful idea, a soft call to action like asking them to DM a word, no hashtags in it", "hashtags": ["max 5 relevant hashtags without the # symbol"], "word": "ONE uppercase keyword people can DM me, e.g. PROTEIN", "tag": "ONE word topic label such as TRAINING or NUTRITION", "photo": "2 to 4 word stock photo search that fits, e.g. barbell squat gym"}\nNo emojis unless they feel natural. Do not sound like an AI: no "Here\'s the thing", no lists of three adjectives, no hype.', 1500);
+      card={ headline:String(j.headline||'').trim(), lines:(j.lines||[]).map(String).slice(0,3), word:String(j.word||'COACH'), tag:String(j.tag||'').replace(/[^A-Za-z ]/g,'').slice(0,18), photoQ:String(j.photo||''), photo:null };
       $('#igHead',b).value=card.headline; $('#igPts',b).value=card.lines.join('\n');
       $('#igCap',b).value = String(j.caption||'').trim() + ((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
-      $('#igPrevWrap',b).style.display=''; await redraw();
+      $('#igPrevWrap',b).style.display=''; await applyStyle();
     });
     $('#igGo',b).onclick = ()=>working($('#igGo',b),when.value==='later'?'Saving...':'Posting...',async()=>{
       const k=kind.value, isPhoto=(k==='photo'||k==='story_photo'), ai_=mode.value==='ai', later=when.value==='later';
@@ -1589,7 +1874,7 @@ function igPostSheet(opts){
       if(ai_){
         if(!card) throw new Error('Press "Make it" first and check the result.');
         headline=card.headline;
-        if(k==='reel'||k==='story_video'){ blob=await makeReelBlob(card); ext='mp4'; ctype='video/mp4'; }
+        if(k==='reel'||k==='story_video'){ await chooseReelLook(card,null,card.photoQ); blob=await makeReelBlob(card); ext='mp4'; ctype='video/mp4'; }
         else { await redraw(); blob=await canvasJpeg($('#igPrev',b)); ext='jpg'; ctype='image/jpeg'; }
       } else {
         const f=await getFile(); if(!f) throw new Error('Choose a photo or video first.');
