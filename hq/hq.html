@@ -111,6 +111,16 @@
   .ex .inp{padding:8px 4px;text-align:center;min-height:44px}.ex .inp.nm{text-align:left;padding:8px 10px}
   .ex-h{display:grid;grid-template-columns:1fr 46px 46px 46px 40px;gap:5px;font-size:10px;color:var(--faint);margin-bottom:4px;text-align:center}
   .ex-h span:first-child{text-align:left}
+  details.act{border:1px solid var(--line2);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+  details.act summary{cursor:pointer;display:flex;flex-direction:column;gap:2px;list-style:none;font-size:14px}
+  details.act summary::-webkit-details-marker{display:none}
+  .mut{color:var(--dim);font-size:12px;font-weight:400}
+  .aex{padding:8px 0;border-top:1px solid rgba(255,255,255,.07)}.aex:first-of-type{margin-top:8px}
+  .aex .an{font-size:13px;margin-bottom:4px}.aex .as{display:flex;flex-wrap:wrap;gap:6px}
+  .aex .as span{font-size:12px;background:rgba(255,255,255,.06);border-radius:6px;padding:3px 8px}.aex .as i{color:var(--dim);font-style:normal}
+  .dnav{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 10px}
+  .mhead{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:12px 0 4px;display:flex;justify-content:space-between}
+  .meal{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid rgba(255,255,255,.07);font-size:14px}.meal .mm{color:var(--dim);font-size:12px;white-space:nowrap}
   .day{font-size:13px;font-weight:600;margin:14px 0 8px}
 
   .chat{display:flex;flex-direction:column;gap:10px;padding-bottom:6px}
@@ -2453,6 +2463,50 @@ async function addClientSheet(){
   });
 }
 
+// ---------- A client's logged sessions and meals, for the owner to look through ----------
+function sessionsHTML(plan, logs){
+  const keys=Object.keys(logs||{}).filter(k=>/^w\d+:\d+$/.test(k)).filter(k=>{ const l=logs[k]||{}; return l.done || Object.keys(l.exercises||{}).some(n=>(l.exercises[n]||[]).some(st=>st&&(st.r||st.w))); });
+  const wk=k=>Number(k.slice(1).split(':')[0]), di=k=>Number(k.split(':')[1]);
+  keys.sort((a,b)=>{ const la=logs[a]||{}, lb=logs[b]||{}; const ta=la.done?(la.completedAt?new Date(la.completedAt).getTime():1):9e15, tb=lb.done?(lb.completedAt?new Date(lb.completedAt).getTime():1):9e15; return (tb-ta)||(wk(b)-wk(a))||(di(b)-di(a)); });
+  if(!keys.length) return '<div class="empty">No sessions logged yet.</div>';
+  const fmtD=t=>{ try{ return new Date(t).toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}); }catch(e){ return ''; } };
+  return keys.slice(0,24).map(k=>{
+    const l=logs[k]||{}, w=wk(k), i=di(k), pd=(plan&&plan.weekNumber===w&&plan.days&&plan.days[i])?plan.days[i]:null;
+    const name=pd?pd.name:('Session '+(i+1)), exs=Object.keys(l.exercises||{}).filter(n=>(l.exercises[n]||[]).some(st=>st&&(st.r||st.w)));
+    const sets=exs.reduce((n,x)=>n+(l.exercises[x]||[]).filter(st=>st&&st.r).length,0);
+    const tag=l.done?('Done '+fmtD(l.completedAt)):'Started, not finished';
+    return `<details class="act"><summary><b>Week ${w} · ${esc(name)}</b><span class="mut">${esc(tag)} · ${sets} sets${l.adapted?' · lightened':''}</span></summary>
+      ${exs.map(n=>`<div class="aex"><div class="an">${esc(n)}</div><div class="as">${(l.exercises[n]||[]).filter(st=>st&&(st.r||st.w)).map(st=>`<span>${esc(String(st.w||'-'))} × ${esc(String(st.r||'-'))}${st.rir!==''&&st.rir!=null?` <i>@${esc(String(st.rir))}</i>`:''}</span>`).join('')}</div></div>`).join('')||'<div class="mut" style="padding:6px 0">Nothing entered.</div>'}
+      ${l.notes?`<div class="help">Their note: ${esc(String(l.notes))}</div>`:''}</details>`;
+  }).join('');
+}
+function mealsHTML(entries, targets){
+  const list=Array.isArray(entries)?entries:[];
+  if(!list.length) return '<div class="empty">Nothing logged this day.</div>';
+  const sum=f=>Math.round(list.reduce((n,e)=>n+(Number(e[f])||0),0));
+  const groups=[['breakfast','Breakfast'],['lunch','Lunch'],['dinner','Dinner'],['snacks','Snacks']];
+  const known=new Set(groups.map(g=>g[0]));
+  const rows=groups.map(([k,lab])=>{ const es=list.filter(e=>(known.has(e.meal)?e.meal:'snacks')===k); if(!es.length) return '';
+    return `<div class="mhead">${lab} <span class="mut">${Math.round(es.reduce((n,e)=>n+(Number(e.calories)||0),0))} kcal</span></div>`+es.map(e=>`<div class="meal"><span class="mn">${esc(e.name||'Meal')}${e.weight_g?` <span class="mut">${Math.round(e.weight_g)}g</span>`:''}</span><span class="mm">${Math.round(Number(e.calories)||0)} kcal · P${Math.round(Number(e.protein)||0)} C${Math.round(Number(e.carbs)||0)} F${Math.round(Number(e.fat)||0)}</span></div>`).join(''); }).join('');
+  return `<div class="stats"><div class="stat"><b>${sum('calories')}</b><span>kcal${targets&&targets.calories?(' of '+targets.calories):''}</span></div><div class="stat"><b>${sum('protein')}g</b><span>protein${targets&&targets.protein?(' of '+targets.protein+'g'):''}</span></div><div class="stat"><b>${sum('carbs')}/${sum('fat')}</b><span>carbs / fat g</span></div></div>`+rows;
+}
+function mountActivity(c, plan, logs, targets, root){
+  const box=$('#actBox',root); if(!box) return;
+  let off=0;
+  const dateOf=o=>{ const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-o); return d; };
+  const draw=async()=>{
+    const d=dateOf(off), lab=off===0?'Today':off===1?'Yesterday':d.toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'});
+    box.innerHTML=`<div class="sec">Sessions they have logged</div>${sessionsHTML(plan,logs)}
+      <div class="sec">Meals they have logged</div>
+      <div class="dnav"><button class="btn sm" id="mPrev" aria-label="Earlier day">‹</button><b id="mLab">${lab}</b><button class="btn sm" id="mNext" aria-label="Later day" ${off===0?'disabled':''}>›</button></div>
+      <div id="mBody"><div class="empty">Loading...</div></div>`;
+    $('#mPrev',box).onclick=()=>{ if(off<60){ off++; draw(); } };
+    $('#mNext',box).onclick=()=>{ if(off>0){ off--; draw(); } };
+    let es=null; try{ es=await db.kvGet(c.user_id,'entries:'+dayKey(d)); }catch(e){}
+    const mb=$('#mBody',box); if(mb && $('#mLab',box) && $('#mLab',box).textContent===lab) mb.innerHTML=mealsHTML(es,targets);
+  };
+  draw();
+}
 async function clientSheet(c){
   const [plan, logs, targets, entries, draft, tprof, cplan] = await Promise.all([
     db.kvGet(c.user_id,'trainingPlan'), db.kvGet(c.user_id,'trainingLogs'), db.kvGet(c.user_id,'targets'), db.kvGet(c.user_id,'entries:'+dayKey()),
@@ -2489,6 +2543,7 @@ async function clientSheet(c){
       <div class="stat"><b>${Math.round(eaten)}</b><span>kcal today${targets?(' of '+targets.calories):''}</span></div></div>
     ${targets?`<div class="help">Protein today: ${Math.round(prot)}g of ${targets.protein}g</div>`:''}
     <div id="intelBox"></div>
+    <div id="actBox"></div>
     <div class="fld"><label>Level</label><select class="sel" id="cLevel"><option value="app" ${c.level==='app'?'selected':''}>App member</option><option value="pro" ${c.level==='pro'?'selected':''}>Pro membership</option><option value="coaching" ${c.level==='coaching'?'selected':''}>1:1 coaching</option></select></div>
     <div class="fld"><label>Status</label><select class="sel" id="cStatus">${['active','paused','ended'].map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
     <div class="fld"><label>Your private notes</label><textarea class="ta" id="cNotes" rows="3">${esc(c.coach_notes||'')}</textarea></div>
@@ -2520,7 +2575,7 @@ async function clientSheet(c){
         toast('Pushed. They get a notification, and it shows in their app.');
       });
     };
-    rebind();
+    rebind(); mountActivity(c, plan, logs, targets, b);
     (async()=>{ try{ if(!INTEL[c.user_id]) INTEL[c.user_id]=(await intelLoad([c]))[c.user_id]||{}; const bx=$('#intelBox',b); if(bx) intelBlock(c,bx); }catch(e){} })();
     $('#cSave',b).onclick = async ()=>{ const p={level:$('#cLevel',b).value,status:$('#cStatus',b).value,coach_notes:$('#cNotes',b).value.trim()}; Object.assign(c,p); await db.update('clients','user_id',c.user_id,p); renderClients(); toast('Saved'); };
     $('#cMsg',b).onclick = ()=>working($('#cMsg',b),'Drafting...',async()=>{
