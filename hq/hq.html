@@ -2604,7 +2604,7 @@ async function clientSheet(c){
     <div class="fld"><label>Level</label><select class="sel" id="cLevel"><option value="app" ${c.level==='app'?'selected':''}>App member</option><option value="pro" ${c.level==='pro'?'selected':''}>Pro membership</option><option value="coaching" ${c.level==='coaching'?'selected':''}>1:1 coaching</option></select></div>
     <div class="fld"><label>Status</label><select class="sel" id="cStatus">${['active','paused','ended'].map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
     <div class="fld"><label>Your private notes</label><textarea class="ta" id="cNotes" rows="3">${esc(c.coach_notes||'')}</textarea></div>
-    <div class="row"><button class="btn" id="cSave">Save details</button><button class="btn" id="cMsg">Draft a check-in</button></div>
+    <div class="row"><button class="btn pri" id="cSave">Save details</button><button class="btn" id="cMsg">Draft a check-in</button></div>
     <div class="row" style="margin-top:8px"><button class="btn" id="cReview">Ask for a review</button><button class="btn" id="cRef">Ask for a referral</button></div>
     ${isDraft?'':`<div class="sec">Their training</div><div id="planBox">${planHTML()}</div>`}`, b=>{
     const rebind = ()=>{
@@ -2638,6 +2638,7 @@ async function clientSheet(c){
     $('#cSave',b).onclick = async ()=>{ const p={display_name:$('#cName',b).value.trim().slice(0,60),level:$('#cLevel',b).value,status:$('#cStatus',b).value,coach_notes:$('#cNotes',b).value.trim()}; Object.assign(c,p); await db.update('clients','user_id',c.user_id,p);
       const cp=$('#cComp',b).value==='1'; if(!!c.comped!==cp){ try{ await db.update('clients','user_id',c.user_id,{comped:cp}); c.comped=cp; }catch(e){ toast('Saved, but free access needs the one-line database update first (see the guide).'); renderClients(); return; } }
       renderClients(); toast('Saved'); };
+    ['#cName','#cComp','#cLevel','#cStatus'].forEach(id=>{ const el=$(id,b); if(el) el.onchange=()=>$('#cSave',b).click(); });
     const askDraft=async(title,body)=>{ Q=(await db.insert('queue',[{kind:'reminder',title,body,client_id:c.user_id,status:'draft',meta:{}}])).concat(Q); closeSheet(); go('today'); toast('Drafted. Approve it on Today.'); };
     $('#cReview',b).onclick=()=>askDraft('Ask for a review','Hey '+(c.display_name||'mate').split(' ')[0]+", it's Nash. Really glad to have you training with me. Would you be up for sending me a couple of lines on how it's going so far and what has changed for you? Be honest, good or bad. If you're comfortable with it, I'd love to share it using just your first name. Totally fine to say no.");
     $('#cRef',b).onclick=()=>askDraft('Ask for a referral','Hey '+(c.display_name||'mate').split(' ')[0]+", it's Nash. If you know a mate who'd get value from training, send them my way. I'll give them a free 7-day starter plan and look after them properly. They can grab it here: "+landingUrl());
