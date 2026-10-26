@@ -1839,6 +1839,7 @@ async function planSheet(){
     <div class="fld"><label>App demo posts in the next 7 days</label><select class="sel" id="plDemos">${[0,1,2,3].map(n=>`<option value="${n}" ${n===1?'selected':''}>${n===0?'None':n+(n===1?' day shows':' days show')+' the client app'}</option>`).join('')}</select><div class="help" style="margin-top:6px">Uses real screens from your client app inside a phone frame. These replace that day's usual post.</div></div>
     <div class="fld"><label>Days that use your own clips or photos (from My content)</label><select class="sel" id="plLib">${[0,1,2,3].map(n=>`<option value="${n}" ${n===0?'selected':''}>${n===0?'None':n+(n===1?' day':' days')}</option>`).join('')}</select></div>
     <div class="row"><button class="btn" id="plGen">Write and design this week</button>${drafts?`<button class="btn pri" id="plAll">Approve all ${drafts}</button>`:''}</div>
+    ${(drafts+approved+failed)?`<div class="row" style="margin-top:8px"><button class="btn" id="plClear" style="color:var(--red);border-color:rgba(232,48,42,.5)">Clear all planned posts (${drafts+approved+failed})</button></div>`:''}
     <div id="plProg" class="help" style="margin-top:10px"></div>
     ${list}`, b=>{
     const idOf=el=>el.closest('.plr').dataset.id;
@@ -1857,6 +1858,13 @@ async function planSheet(){
       }
       const n=await generateWeek(Number($('#plReels',b).value), Number($('#plDemos',b).value), m=>{ $('#plProg',b).textContent=m; }, Number($('#plLib',b).value), a0);
       toast(n+' days ready to check'+(GEN_NOTES.length?'. '+GEN_NOTES[0]:'')); reload();
+    });
+    const clrBtn=$('#plClear',b); if(clrBtn) clrBtn.onclick=()=>working(clrBtn,'Clearing...',async()=>{
+      const del=rows.filter(r=>r.status==='draft'||r.status==='approved'||r.status==='failed');
+      if(!del.length) return;
+      if(!confirm('Delete all '+del.length+' planned posts, including '+del.filter(r=>r.status==='approved').length+' approved ones that have not gone out yet?\n\nPosts already published are not touched. This cannot be undone.')) return;
+      for(let i=0;i<del.length;i+=10) await Promise.all(del.slice(i,i+10).map(r=>db.remove('ig_schedule','id',r.id)));
+      toast('Cleared '+del.length+' planned posts.'); reload();
     });
     const allBtn=$('#plAll',b); if(allBtn) allBtn.onclick=()=>working(allBtn,'Approving...',async()=>{
       for(const r of rows.filter(r=>r.status==='draft')) await db.update('ig_schedule','id',r.id,{status:'approved',updated_at:new Date().toISOString()});
