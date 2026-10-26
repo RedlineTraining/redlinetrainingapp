@@ -524,6 +524,38 @@ async function setQ(q, patch){ Object.assign(q,patch); await db.update('queue','
 async function setLead(l, patch){ Object.assign(l,patch); await db.update('leads','id',l.id,patch); }
 const composeCopy = q => (q.kind==='dm'||q.kind==='reminder') ? q.body : [q.body,(q.meta||{}).hashtags].filter(Boolean).join('\n\n');
 
+// ---------- Free-plan email sequence: 7 emails over 14 days. The first goes out at sign-up; HQ drafts the other six on the right days for you to approve and send ----------
+const EMAIL_SEQ=[
+ null,
+ { day:2, subject:'One thing that moves the needle', body:'Hey {first}, Nash here. How are you going with the starter plan so far?\n\nOne thing most beginners miss: the plan only works if you can repeat it. If a session felt too hard or too long, tell me and I will help you adjust it. Small and consistent beats perfect and short-lived.\n\nJust reply to this with how it went.\n\nNash' },
+ { day:4, subject:'Want a second pair of eyes on your plan?', body:'Hey {first}, Nash here. If you would like, I am happy to jump on a free 10-minute chat and go through your plan with you. No pitch, just a few questions and a clear next step.\n\nReply "chat" and tell me a day that suits and I will send a time.\n\nNash' },
+ { day:6, subject:'The easiest way to keep track', body:'Hey {first}, Nash here. The people who stick with training are almost always the ones who log it. I built the Redline app so you can log your sessions and meals in a few taps and see your progress week to week.\n\nWant me to set you up with access? Reply "app" and I will send you a link.\n\nNash' },
+ { day:8, subject:'The most common mistake in week two', body:'Hey {first}, Nash here. The most common mistake I see in week two is going harder because week one felt good, then burning out. Keep the effort steady for another week and add a little at a time.\n\nHow is your energy and how are the sessions feeling?\n\nNash' },
+ { day:11, subject:'Do you want me to build it around you?', body:'Hey {first}, Nash here. The starter plan is a solid start, but it is the same for everyone. If you want a program built around your goal, your schedule and what you actually eat, with me checking in every week, I take on a small number of 1:1 clients.\n\nIf that sounds good, reply "chat" and we can do a free 10-minute call to see if it is a fit.\n\nNash' },
+ { day:14, subject:'Last one from me', body:'Hey {first}, Nash here. This is my last note about your starter plan. Whatever you decide, I hope the last two weeks got you moving.\n\nIf you ever want help, just reply here and it comes straight to me.\n\nNash' }
+];
+async function draftEmailSequence(){
+  if(!(typeof L!=='undefined'&&L.length)) return 0;
+  const openMail=new Set(Q.filter(q=>(q.meta||{}).email&&(q.status==='draft'||q.status==='approved')).map(q=>q.lead_id));
+  const rows=[], upd=[];
+  for(const l of L){
+    if(l.source!=='starter-plan'||['replied','call','client','lost'].includes(l.stage)||openMail.has(l.id)) continue;
+    const em=((String(l.notes||'').match(/email:(\S+)/)||[])[1]||'').trim(); if(!em) continue;
+    const done=Number((String(l.notes||'').match(/seq:(\d+)/)||[])[1]||1);
+    const nx=EMAIL_SEQ[done]; if(!nx) continue;
+    const age=(Date.now()-new Date(l.created_at||l.last_touch||Date.now()))/864e5;
+    if(age<nx.day) continue;
+    const first=(l.name||'there').split(' ')[0];
+    rows.push({ kind:'reminder', title:'Email '+(done+1)+' of 7 for '+first+' (free plan)', body:nx.body.replace(/\{first\}/g,first), lead_id:l.id, status:'draft', meta:{email:em, subject:nx.subject, via:'email', step:'seq', seq:done+1} });
+    upd.push([l, String(l.notes||'').replace(/\s*\|?\s*seq:\d+/,'')+' | seq:'+(done+1)]);
+  }
+  if(!rows.length) return 0;
+  Q=(await db.insert('queue',rows)).concat(Q);
+  for(const [l,n] of upd){ try{ await setLead(l,{notes:n}); }catch(e){} }
+  try{ await notify(ME.id,'approval_needed','Emails ready to send',rows.length+' follow-up email'+(rows.length===1?'':'s')+' drafted for your free-plan sign-ups.',''); }catch(e){}
+  return rows.length;
+}
+
 async function draftDMs(mode){
   const open = new Set(Q.filter(q=>q.kind==='dm'&&(q.status==='draft'||q.status==='approved')).map(q=>q.lead_id));
   let t = mode==='first'
@@ -2937,6 +2969,7 @@ async function start(){
     return;
   }
   setupVoice(); go('today'); startLive();
+  draftEmailSequence().then(n=>{ if(n){ try{ setBadge(); if(!busyTyping()) render(); }catch(e){} } }).catch(()=>{});
   if(!DEMO) (async()=>{ try{ if(typeof Notification!=='undefined' && Notification.permission==='granted' && 'serviceWorker' in navigator){ const reg=await navigator.serviceWorker.ready; const sub=await reg.pushManager.getSubscription(); if(sub) await savePushSub(sub); } }catch(e){} })();
   intelRefresh(true).then(ok=>{ if(ok && !busyTyping()) render(); });
   const nm = ownerFirstName(); if($('#meName')){ $('#meName').textContent=nm; $('#meAv').textContent=nm.charAt(0).toUpperCase(); $('#meRole').textContent = IS_OWNER?'Owner':'Team'; }
