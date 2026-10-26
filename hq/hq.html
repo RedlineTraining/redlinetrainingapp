@@ -1672,12 +1672,14 @@ async function getPostPhoto(query, pc){
   const order=(pc.k%2===0&&pc.own.length)?[tryOwn,tryStock]:[tryStock,tryOwn]; pc.k++;
   for(const f of order){ const r=await f(); if(r) return r; } return null;
 }
-async function generateWeek(reels, demos, tick, libN){
+async function generateWeek(reels, demos, tick, libN, startDate){
+  let _bump=0; const atLoc=(d,t)=>{ let r=new Date(atLocal(d,t)); const min=Date.now()+15*60000; if(r.getTime()<min){ r=new Date(min+_bump*25*60000); _bump++; } return r.toISOString(); };
   libN=libN||0; GEN_NOTES=[];
   const rows=await planRows(); const recent=(await (async()=>{ if(DEMO) return rd('ig_schedule'); const {data}=await sb.from('ig_schedule').select('label,run_at').order('run_at',{ascending:false}).limit(40); return data||[]; })()).map(r=>r.label).filter(Boolean).slice(0,30);
   let start=new Date(); start.setHours(0,0,0,0); start.setDate(start.getDate()+1);
-  const last=rows.filter(r=>r.status!=='skipped').map(r=>r.run_at).sort().pop();
-  if(last){ const ld=new Date(last); ld.setHours(0,0,0,0); ld.setDate(ld.getDate()+1); if(ld>start) start=ld; }
+  if(startDate){ start=new Date(startDate); start.setHours(0,0,0,0); }
+  else { const last=rows.filter(r=>r.status!=='skipped').map(r=>r.run_at).sort().pop();
+    if(last){ const ld=new Date(last); ld.setHours(0,0,0,0); ld.setDate(ld.getDate()+1); if(ld>start) start=ld; } }
   tick('Writing the week...');
   const j=await aiJSON('Plan 7 days of Instagram content for my coaching business.\nFor EACH day give one feed post idea (a useful, specific coaching tip a real coach would say, drawn from my niche), plus two story call-to-action cards.\nReturn JSON only: {"days":[{"headline":"a scroll-stopping hook, 3 to 5 words, no full stop (a bold claim, a mistake, or a number, e.g. STOP DOING CRUNCHES)","lines":["exactly 2 very short points, max 4 words each"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action that mentions the free 7-day starter plan in the link in my bio (never write a web address), no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me about this post, e.g. PROTEIN","tag":"ONE word topic label such as TRAINING, NUTRITION, RECOVERY, MINDSET, RUNNING or MISTAKES","photo":"2 to 4 word search for a real stock photo that fits this post, such as barbell squat gym, kettlebell swing, running track sunrise or healthy meal prep","cta1":{"headline":"max 8 words, a low-pressure invitation to grab my free 7-day starter plan from the link in my bio, no price, no promises","word":"ONE uppercase DM keyword"},"cta2":{"headline":"max 8 words, a different angle to cta1","word":"ONE uppercase DM keyword"}}]}\nExactly 7 days. Vary the topics (training, nutrition, recovery, mindset, running, common mistakes). Do not sound like an AI: no "Here\'s the thing", no triplets of adjectives, no hype. '+(recent.length?'Do not repeat or closely echo these recent topics: '+recent.join(' | ')+'.':''), 6000);
   const days=(j.days||[]).slice(0,7); if(days.length<7) throw new Error('The AI only wrote '+days.length+' days. Try again.');
@@ -1724,13 +1726,13 @@ async function generateWeek(reels, demos, tick, libN){
         if(it.kind==='video'){
           const r=await makeOverlayVideo(f,t.ov,u=>tick('Day '+(i+1)+' of 7: recording "'+(it.name||'clip')+'" '+Math.round(u*100)+'% (keep this tab open)'));
           const url=await putMedia(r.blob,'mp4','video/mp4');
-          [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:t.cap,label:lab,run_at:atLocal(day,T.post)})]);
-          await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+lab,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
+          [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:t.cap,label:lab,run_at:atLoc(day,T.post)})]);
+          await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+lab,run_at:atLoc(day,T.repost),repost_of:parent.id})]);
         } else {
           await paintStill(cv,f,false,t.ov,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
           await paintStill(cv,f,false,t.ov,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
-          [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:t.cap,label:lab,run_at:atLocal(day,T.post)})]);
-          await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+lab,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
+          [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:t.cap,label:lab,run_at:atLoc(day,T.post)})]);
+          await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+lab,run_at:atLoc(day,T.repost),repost_of:parent.id})]);
         }
         handled=true;
         try{ await db.update('ig_library','id',it.id,{times_used:(it.times_used||0)+1,last_used:new Date().toISOString()}); }catch(e){}
@@ -1746,14 +1748,14 @@ async function generateWeek(reels, demos, tick, libN){
         tick('Day '+(i+1)+' of 7: recording the app demo reel (keep this tab open)...');
         const blob=await makeReelBlob(dcard,u=>tick('Day '+(i+1)+' of 7: recording the app demo reel '+Math.round(u*100)+'% (keep this tab open)'));
         const url=await putMedia(blob,'mp4','video/mp4');
-        [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:dcap,label:dlabel,run_at:atLocal(day,T.post)})]);
-        await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+dlabel,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
+        [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:dcap,label:dlabel,run_at:atLoc(day,T.post)})]);
+        await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+dlabel,run_at:atLoc(day,T.repost),repost_of:parent.id})]);
       } else {
         tick('Day '+(i+1)+' of 7: designing the app demo post...');
         await renderDemoCard(cv,dcard,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
         await renderDemoCard(cv,dcard,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
-        [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:dcap,label:dlabel,run_at:atLocal(day,T.post)})]);
-        await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+dlabel,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
+        [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:dcap,label:dlabel,run_at:atLoc(day,T.post)})]);
+        await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+dlabel,run_at:atLoc(day,T.repost),repost_of:parent.id})]);
       }
     } else if(reelDays.includes(i)){
       tick('Day '+(i+1)+' of 7: recording the reel (keep this tab open)...');
@@ -1768,8 +1770,8 @@ async function generateWeek(reels, demos, tick, libN){
         blob=await makeReelBlob(card,u=>tick('Day '+(i+1)+' of 7: recording the reel '+Math.round(u*100)+'% (keep this tab open)'));
       }
       const url=await putMedia(blob,'mp4','video/mp4');
-      [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:cap,label:card.headline,run_at:atLocal(day,T.post)})]);
-      await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+card.headline,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
+      [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:cap,label:card.headline,run_at:atLoc(day,T.post)})]);
+      await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+card.headline,run_at:atLoc(day,T.repost),repost_of:parent.id})]);
     } else {
       tick('Day '+(i+1)+' of 7: designing the post...');
       card.layout=layFor[i]||'statement';
@@ -1781,13 +1783,13 @@ async function generateWeek(reels, demos, tick, libN){
       usedLay.push(card.layout);
       await renderCard(cv,card,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
       await renderCard(cv,card,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
-      [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:cap,label:card.headline,run_at:atLocal(day,T.post)})]);
-      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+card.headline,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
+      [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:cap,label:card.headline,run_at:atLoc(day,T.post)})]);
+      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: '+card.headline,run_at:atLoc(day,T.repost),repost_of:parent.id})]);
     }
     for(const [k,key] of [['cta1','cta1'],['cta2','cta2']]){
       const c=d[k]||{}; await renderCTA(cv,{headline:String(c.headline||'Want a plan that fits your week?').trim(),word:String(c.word||'COACH')});
       const u=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
-      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u,label:'CTA story: '+String(c.headline||'').trim(),run_at:atLocal(day,T[key])})]);
+      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u,label:'CTA story: '+String(c.headline||'').trim(),run_at:atLoc(day,T[key])})]);
     }
     made++;
   }
@@ -1798,6 +1800,9 @@ const KIND_LABEL={photo:'Post',reel:'Reel',story_photo:'Story',story_video:'Stor
 const fmtLocal=iso=>{ const d=new Date(iso); return d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}); };
 const dayHead=iso=>new Date(iso).toLocaleDateString([], {weekday:'long',day:'numeric',month:'short'});
 const toTimeVal=iso=>{ const d=new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+const localISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const fmtDM=d=>d.getDate()+'/'+(d.getMonth()+1);
+function nextPlanStart(rows){ let st=new Date(); st.setHours(0,0,0,0); st.setDate(st.getDate()+1); const last=(rows||[]).filter(r=>r.status!=='skipped').map(r=>r.run_at).sort().pop(); if(last){ const ld=new Date(last); ld.setHours(0,0,0,0); ld.setDate(ld.getDate()+1); if(ld>st) st=ld; } return localISO(st); }
 async function planSheet(){
   let rows=[]; try{ rows=await planRows(); }catch(e){ toast('Could not load the plan. Has the schedule SQL been run?'); return; }
   const drafts=rows.filter(r=>r.status==='draft').length, approved=rows.filter(r=>r.status==='approved').length, failed=rows.filter(r=>r.status==='failed').length;
@@ -1829,16 +1834,28 @@ async function planSheet(){
   sheet('Weekly plan', `
     <div class="help">One post or reel a day, a story repost of it, and two call-to-action stories. Nothing goes out until you approve it. Approved items post by themselves at the time shown, even when HQ is closed.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><span class="pill">${drafts} to approve</span><span class="pill" style="color:#3FB950;border-color:rgba(63,185,80,.4)">${approved} scheduled</span>${failed?`<span class="pill">${failed} failed</span>`:''}</div>
+    <div class="fld"><label>Week to make (starts on)</label><input class="inp" type="date" id="plStart" value="${nextPlanStart(rows)}" min="${localISO(new Date())}"><div class="help" id="plRange" style="margin-top:6px"></div></div>
     <div class="fld"><label>Animated reels in the next 7 days</label><select class="sel" id="plReels">${[0,3,4,5].map(n=>`<option value="${n}" ${n===(canReel?4:0)?'selected':''} ${n>0&&!canReel?'disabled':''}>${n===0?'None, posts only':n+' reels, the rest posts'}</option>`).join('')}</select>${canReel?'':'<div class="help" style="margin-top:6px">This browser cannot save MP4 reels, so reels are off. Use an up-to-date Chrome or Safari for those.</div>'}</div>
     <div class="fld"><label>App demo posts in the next 7 days</label><select class="sel" id="plDemos">${[0,1,2,3].map(n=>`<option value="${n}" ${n===1?'selected':''}>${n===0?'None':n+(n===1?' day shows':' days show')+' the client app'}</option>`).join('')}</select><div class="help" style="margin-top:6px">Uses real screens from your client app inside a phone frame. These replace that day's usual post.</div></div>
     <div class="fld"><label>Days that use your own clips or photos (from My content)</label><select class="sel" id="plLib">${[0,1,2,3].map(n=>`<option value="${n}" ${n===0?'selected':''}>${n===0?'None':n+(n===1?' day':' days')}</option>`).join('')}</select></div>
-    <div class="row"><button class="btn" id="plGen">Write and design the next 7 days</button>${drafts?`<button class="btn pri" id="plAll">Approve all ${drafts}</button>`:''}</div>
+    <div class="row"><button class="btn" id="plGen">Write and design this week</button>${drafts?`<button class="btn pri" id="plAll">Approve all ${drafts}</button>`:''}</div>
     <div id="plProg" class="help" style="margin-top:10px"></div>
     ${list}`, b=>{
     const idOf=el=>el.closest('.plr').dataset.id;
     const reload=()=>{ closeSheet(); planSheet(); };
+    const showRange=()=>{ const v=$('#plStart',b).value; if(!v){ $('#plRange',b).textContent=''; return; } const a=new Date(v+'T00:00'), z=new Date(a); z.setDate(z.getDate()+6); $('#plRange',b).textContent='Plans '+fmtDM(a)+' to '+fmtDM(z)+'.'; };
+    $('#plStart',b).onchange=showRange; showRange();
     $('#plGen',b).onclick=()=>working($('#plGen',b),'Working...',async()=>{
-      const n=await generateWeek(Number($('#plReels',b).value), Number($('#plDemos',b).value), m=>{ $('#plProg',b).textContent=m; }, Number($('#plLib',b).value));
+      const sv=$('#plStart',b).value; if(!sv){ toast('Pick the day the week starts.'); return; }
+      const a0=new Date(sv+'T00:00'), z0=new Date(a0); z0.setDate(z0.getDate()+7);
+      const clash=rows.filter(r=>(r.status==='approved'||r.status==='draft')&&new Date(r.run_at)>=a0&&new Date(r.run_at)<z0);
+      if(clash.length){
+        const ap=clash.filter(r=>r.status==='approved').length;
+        const z1=new Date(z0); z1.setDate(z1.getDate()-1);
+        if(!confirm(clash.length+' post'+(clash.length===1?'':'s')+' ('+ap+' approved) already '+(clash.length===1?'is':'are')+' planned for '+fmtDM(a0)+' to '+fmtDM(z1)+'.\n\nOK = replace them with a new plan.\nCancel = keep them and do nothing.')){ $('#plProg',b).textContent='Kept your existing posts. Nothing changed.'; return; }
+        for(const r of clash) await db.update('ig_schedule','id',r.id,{status:'skipped',updated_at:new Date().toISOString()});
+      }
+      const n=await generateWeek(Number($('#plReels',b).value), Number($('#plDemos',b).value), m=>{ $('#plProg',b).textContent=m; }, Number($('#plLib',b).value), a0);
       toast(n+' days ready to check'+(GEN_NOTES.length?'. '+GEN_NOTES[0]:'')); reload();
     });
     const allBtn=$('#plAll',b); if(allBtn) allBtn.onclick=()=>working(allBtn,'Approving...',async()=>{
