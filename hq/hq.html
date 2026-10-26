@@ -530,10 +530,21 @@ async function draftDMs(mode){
     ? L.filter(l=>l.stage==='new')
     : L.filter(l=>l.stage==='contacted' && (!l.next_touch || new Date(l.next_touch)<=new Date()));
   t = t.filter(l=>!open.has(l.id));
+  // free-plan sign-ups are emailed, not messaged on Instagram: their first reply is drafted when they sign up, follow-ups are drafted here
+  const mailLeads = t.filter(l=>l.source==='starter-plan'); t = t.filter(l=>l.source!=='starter-plan');
+  let mailMade = 0;
+  if(mode!=='first' && mailLeads.length){
+    const openMail = new Set(Q.filter(q=>q.kind==='reminder'&&(q.meta||{}).email&&(q.status==='draft'||q.status==='approved')).map(q=>q.lead_id));
+    const mrows = mailLeads.filter(l=>!openMail.has(l.id)).slice(0,10).map(l=>{
+      const em=((String(l.notes||'').match(/email:(\S+)/)||[])[1]||'').trim(); const first=(l.name||'there').split(' ')[0];
+      return em ? { kind:'reminder', title:'Follow up with '+first+' (free plan)', body:'Hey '+first+', Nash here. Just checking my message got through. Did you get a chance to look at your starter plan? Happy to point you in the right direction either way, and no pressure at all.\n\nNash', lead_id:l.id, status:'draft', meta:{email:em, subject:'Your Redline starter plan', via:'email', step:'follow'} } : null;
+    }).filter(Boolean);
+    if(mrows.length){ Q = (await db.insert('queue', mrows)).concat(Q); mailMade = mrows.length; }
+  }
   const room = cap() - sentToday() - open.size;
-  if(room<=0){ toast('Daily message cap reached. Raise it in Settings if you want more.'); return 0; }
-  t = t.slice(0, Math.min(10, room));
-  if(!t.length){ toast(mode==='first'?'No new leads waiting.':'No follow-ups due.'); return 0; }
+  if(room<=0 && !mailMade){ toast('Daily message cap reached. Raise it in Settings if you want more.'); return 0; }
+  t = t.slice(0, Math.max(0, Math.min(10, room)));
+  if(!t.length){ if(mailMade){ await notify(ME.id, 'approval_needed', 'Messages ready to approve', mailMade+' follow-up'+(mailMade===1?'':'s')+' drafted.', ''); return mailMade; } toast(mode==='first'?'No new leads waiting.':'No follow-ups due.'); return 0; }
   const people = t.map(l=>({id:l.id, handle:l.handle, name:l.name||'', notes:l.notes||'', daysSinceLastMessage: l.last_touch?Math.floor((Date.now()-new Date(l.last_touch))/864e5):null}));
   const j = await aiJSON(
     (mode==='first'
@@ -545,8 +556,8 @@ async function draftDMs(mode){
   }));
   if(!rows.length) throw new Error('No usable drafts came back. Try again.');
   Q = (await db.insert('queue', rows)).concat(Q);
-  await notify(ME.id, 'approval_needed', 'Messages ready to approve', rows.length+' '+(mode==='first'?'new message':'follow-up')+(rows.length===1?'':'s')+' drafted.', '');
-  return rows.length;
+  await notify(ME.id, 'approval_needed', 'Messages ready to approve', (rows.length+mailMade)+' '+(mode==='first'?'new message':'follow-up')+((rows.length+mailMade)===1?'':'s')+' drafted.', '');
+  return rows.length+mailMade;
 }
 
 async function planWeek(){
@@ -565,7 +576,7 @@ async function planWeek(){
 }
 async function oneIdea(topic){
   const j = await aiJSON(
-    'Write one Instagram reel for this topic: "' + topic + '". Hook for the first 2 seconds, spoken script under 35 seconds, shot directions for a coach filming alone, caption, hashtags, and a soft call to action.'
+    'Write one Instagram reel for this topic: "' + topic + '". Hook for the first 2 seconds, spoken script under 35 seconds, shot directions for a coach filming alone, caption, hashtags, and a soft call to action that mentions the free 7-day starter plan in the link in my bio (never write a web address).'
     + '\nReturn JSON only: {"title":"","hook":"","script":"","shots":"","caption":"","hashtags":"","cta":""}', 3000);
   const rows = [{ kind:'reel', title:j.title||topic, body:String(j.caption||j.script||'').trim(), status:'draft',
     meta:{hook:j.hook||'',script:j.script||'',shots:j.shots||'',hashtags:j.hashtags||'',cta:j.cta||''} }];
@@ -607,6 +618,7 @@ function qCard(q){
   else if(q.status==='approved'){
     acts = `<button class="btn" data-act="copy" data-id="${q.id}">Copy</button>`
       + (q.kind==='dm'&&lead ? `<button class="btn" data-act="ig" data-id="${q.id}">Open Instagram</button>` : '')
+      + ((q.meta||{}).email ? `<button class="btn" data-act="mail" data-id="${q.id}">Open email</button>` : '')
       + `<button class="btn pri" data-act="done" data-id="${q.id}">${(q.kind==='dm'||q.kind==='reminder')?'Mark sent':'Mark posted'}</button>`;
   }
   if(rich && (q.status==='draft'||q.status==='approved')) acts += `<button class="btn" data-film="${q.id}">Film this</button>`;
@@ -750,6 +762,7 @@ function renderToday(){
   setBadge();
 }
 
+const landingUrl=()=>{ try{ return (S.landing&&/^https:\/\//.test(S.landing))?S.landing:new URL('../start.html',location.href).href; }catch(e){ return ''; } };
 function renderLeads(filter){
   filter = filter||renderLeads._f||'all'; renderLeads._f=filter;
   const el=$('#s-leads');
@@ -757,10 +770,17 @@ function renderLeads(filter){
   const list = L.filter(l=>filter==='all'||l.stage===filter);
   el.innerHTML = `
     <div class="lead-h"><h2>Leads</h2><button class="btn pri sm" id="addLeadsBtn">+ Add leads</button></div>
+    <div class="hud" style="margin-bottom:14px"><div class="ph"><h3>Your free plan link</h3><span class="cp red">PUT IN YOUR BIO</span></div>
+      <div class="help" style="margin:0 0 10px">Everything you post points people here. They get a free 7-day plan, and they land in this list with a reply drafted for you. Put this link in your Instagram bio.</div>
+      <div class="help" style="word-break:break-all;color:var(--txt);margin:0 0 10px" id="lpUrl">${esc(landingUrl())}</div>
+      <div class="row"><button class="btn" id="lpCopy">Copy link</button><button class="btn" id="lpOpen">Open the page</button></div>
+      <div class="help" style="margin-top:10px">${L.filter(l=>l.source==='starter-plan').length} sign-up${L.filter(l=>l.source==='starter-plan').length===1?'':'s'} so far</div></div>
     <div class="row" style="margin:0 0 14px"><button class="btn" id="dmFirst">Draft first messages</button><button class="btn" id="dmFollow">Follow-ups${due?' ('+due+' due)':''}</button></div>
     <div class="chips">${['all'].concat(STAGES).map(s=>`<button class="chip ${filter===s?'on':''}" data-f="${s}">${s==='all'?'All ('+L.length+')':STAGE_LABEL[s]+' ('+L.filter(l=>l.stage===s).length+')'}</button>`).join('')}</div>
-    ${list.length? '<div class="grid2">'+list.map(l=>`<button class="item" data-lead="${l.id}"><div><div class="t">@${esc(l.handle)}${l.name?' · '+esc(l.name):''}</div><div class="s">${STAGE_LABEL[l.stage]} · last message ${ago(l.last_touch)}${l.notes?' · '+esc(l.notes.slice(0,40)):''}</div></div><span class="r">›</span></button>`).join('')+'</div>'
+    ${list.length? '<div class="grid2">'+list.map(l=>`<button class="item" data-lead="${l.id}"><div><div class="t">${l.source==='starter-plan'?'':'@'}${esc(l.handle)}${l.name?' · '+esc(l.name):''}</div><div class="s">${l.source==='starter-plan'?'Free plan · ':''}${STAGE_LABEL[l.stage]} · last message ${ago(l.last_touch)}${l.notes?' · '+esc(l.notes.slice(0,40)):''}</div></div><span class="r">›</span></button>`).join('')+'</div>'
       : `<div class="empty">${L.length?'No leads at this stage.':'No leads yet.<br>Paste in people who follow you, people you follow, or anyone who messaged you. Start with 10 to 20.'}</div>`}`;
+  const lc=$('#lpCopy'); if(lc) lc.onclick=async()=>{ await copy(landingUrl()); toast('Link copied. Paste it into your Instagram bio.'); };
+  const lo=$('#lpOpen'); if(lo) lo.onclick=()=>window.open(landingUrl(),'_blank');
 }
 
 function renderContent(){
@@ -777,7 +797,7 @@ function renderContent(){
   };
   $('#s-content').innerHTML = `
     <div class="lead-h"><h2>Instagram</h2></div>
-    <div class="row" style="margin:0 0 12px"><button class="btn pri" id="igOpenPlan">Weekly plan</button><button class="btn" id="igOpenPost">Post now</button><button class="btn" id="igOpenLib">My content</button><button class="btn" id="igOpenRep">Weekly report</button></div><div class="help" id="bestTimeNote" style="margin:-4px 0 12px"></div>
+    <div class="row" style="margin:0 0 12px"><button class="btn pri" id="igOpenPlan">Weekly plan</button><button class="btn" id="igOpenPost">Post now</button><button class="btn" id="igOpenLib">My content</button><button class="btn" id="igOpenFilm">Film this week</button><button class="btn" id="igOpenRep">Weekly report</button></div><div class="help" id="bestTimeNote" style="margin:-4px 0 12px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px"><span class="pill">${drafts.length} to approve</span><span class="pill" style="color:#3FB950;border-color:rgba(63,185,80,.4)">${sched.length} scheduled</span><span class="pill" style="color:var(--dim);border-color:var(--line2)">${posted.length} posted</span>${failed.length?`<span class="pill">${failed.length} failed</span>`:''}</div>
     ${coming.length ? `<div class="help" style="margin-bottom:8px">Coming up. Tap any to review, edit or approve.</div><div class="grid2" style="margin-bottom:22px">${coming.map(row).join('')}</div>`
       : `<div class="empty" style="margin-bottom:22px">Nothing scheduled yet.<br>Tap <b>Weekly plan</b> and HQ writes and designs the next 7 days: a post or reel a day, a story repost and two call-to-action stories. You approve once, then it posts by itself.</div>`}
@@ -1232,8 +1252,8 @@ async function renderCTA(canvas, c){
   let size=156, lines; for(;size>=84;size-=6){ lines=wrap(String(c.headline||'').toUpperCase(),'700 '+size+'px "Barlow Condensed", Impact, sans-serif',W-pad*2); if(lines.length<=4) break; }
   x.fillStyle='#F5F5F5'; x.font='700 '+size+'px "Barlow Condensed", Impact, sans-serif';
   let y=700; for(const l of lines){ x.fillText(l,pad,y); y+=size*0.98; }
-  y+=70; x.fillStyle='#BDBFC4'; x.font='600 48px "Inter", Arial, sans-serif'; x.fillText('DM me the word',pad,y); y+=40;
-  const word=String(c.word||'COACH').toUpperCase(); x.font='700 120px "Barlow Condensed", Impact, sans-serif';
+  y+=70; x.fillStyle='#BDBFC4'; x.font='600 48px "Inter", Arial, sans-serif'; x.fillText('Free 7-day starter plan',pad,y); y+=40;
+  const word='LINK IN BIO'; x.font='700 120px "Barlow Condensed", Impact, sans-serif';
   const tw=x.measureText(word).width, bw=tw+90, bh=150;
   x.fillStyle='#E8302A'; x.beginPath(); x.roundRect?x.roundRect(pad,y,bw,bh,22):x.rect(pad,y,bw,bh); x.fill();
   x.fillStyle='#fff'; x.fillText(word,pad+45,y+112);
@@ -1369,8 +1389,8 @@ function drawReelFrame(x, t, card, lay, bg, logo){
   const bu=ease((t-1.9)/0.6); if(bu>0){ x.globalAlpha=bu*dim; x.fillStyle=lay.barColor||'#E8302A'; if(lay.barCx) x.fillRect(W/2-70*bu,lay.barY,140*bu,9); else x.fillRect(lay.pad,lay.barY,140*bu,9); }
   if(t>endT){
     const u=ease((t-endT-0.2)/0.6); x.globalAlpha=u; x.textAlign='center';
-    x.fillStyle='#BDBFC4'; x.font='600 54px "Inter", Arial, sans-serif'; x.fillText('DM me the word',W/2,H/2-60);
-    const word=String(card.word||'COACH').toUpperCase(); x.font='700 190px "Barlow Condensed", Impact, sans-serif';
+    x.fillStyle='#BDBFC4'; x.font='600 54px "Inter", Arial, sans-serif'; x.fillText('Free 7-day starter plan',W/2,H/2-60);
+    const word='LINK IN BIO'; x.font='700 190px "Barlow Condensed", Impact, sans-serif';
     const tw=x.measureText(word).width, bw=tw+110, bh=230, bx=W/2-bw/2, by=H/2-20;
     x.fillStyle='#E8302A'; x.beginPath(); x.roundRect?x.roundRect(bx,by,bw,bh,28):x.rect(bx,by,bw,bh); x.fill();
     x.fillStyle='#fff'; x.fillText(word,W/2,by+174);
@@ -1405,8 +1425,8 @@ function drawDemoReelFrame(x, t, d, lay, img, bg, logo){
   });
   if(t>endT){
     const u=ease((t-endT-0.2)/0.6); x.globalAlpha=u; x.textAlign='center';
-    x.fillStyle='#BDBFC4'; x.font='600 54px "Inter", Arial, sans-serif'; x.fillText('DM me the word',W/2,H/2-60);
-    const word=String(d.word||'APP').toUpperCase(); x.font='700 190px "Barlow Condensed", Impact, sans-serif';
+    x.fillStyle='#BDBFC4'; x.font='600 54px "Inter", Arial, sans-serif'; x.fillText('Free 7-day starter plan',W/2,H/2-60);
+    const word='LINK IN BIO'; x.font='700 190px "Barlow Condensed", Impact, sans-serif';
     const tw=x.measureText(word).width, bw=tw+110, bh=230, bx=W/2-bw/2, by=H/2-20;
     rrect(x,bx,by,bw,bh,28); x.fillStyle='#E8302A'; x.fill(); x.fillStyle='#fff'; x.fillText(word,W/2,by+174); x.textAlign='left';
   }
@@ -1466,7 +1486,7 @@ function drawOverlay(x, t, W, H, ov, lay, logo, dur, still){
   const pill=(txt,cy,a)=>{ x.globalAlpha=a; x.font='600 44px "Inter", Arial, sans-serif'; const tw=x.measureText(txt).width+76, bx=(W-tw)/2;
     rrect(x,bx,cy,tw,92,46); x.fillStyle='rgba(8,9,10,0.88)'; x.fill(); x.strokeStyle='rgba(232,48,42,0.75)'; x.lineWidth=3; x.stroke();
     x.fillStyle='#fff'; x.textAlign='center'; x.fillText(txt,W/2,cy+61); x.textAlign='left'; };
-  const ctaBox=(cy,a)=>{ x.globalAlpha=a; const txt='DM  '+String(ov.word).toUpperCase(); x.font='700 92px "Barlow Condensed", Impact, sans-serif'; const tw=x.measureText(txt).width+110, bx=(W-tw)/2;
+  const ctaBox=(cy,a)=>{ x.globalAlpha=a; const txt='FREE PLAN: LINK IN BIO'; x.font='700 92px "Barlow Condensed", Impact, sans-serif'; const tw=x.measureText(txt).width+110, bx=(W-tw)/2;
     rrect(x,bx,cy,tw,138,30); x.fillStyle='#E8302A'; x.fill(); x.fillStyle='#fff'; x.textAlign='center'; x.fillText(txt,W/2,cy+98); x.textAlign='left'; };
   const baseY=lay.tall?Math.round(H*0.66):Math.round(H*0.62);
   if(still){
@@ -1507,7 +1527,7 @@ async function makeOverlayVideo(file, ov, onTick){
   try{
     if(m.dur>OV_MAX_SECONDS+0.5) throw new Error('That clip is '+Math.round(m.dur)+' seconds. Trim it to '+OV_MAX_SECONDS+' seconds or less.');
     const W=1080,H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const x=cv.getContext('2d');
-    const logo=await loadLogo(), lay=ovLayout(x,ov,W,H), dur=m.dur;
+    const logo=await loadLogo(), lay=ovLayout(x,ov,W,H), dur=ov.maxSec?Math.min(m.dur,ov.maxSec):m.dur;
     const paint=t=>{ x.globalAlpha=1; x.fillStyle='#000'; x.fillRect(0,0,W,H); drawCover(x,v,m.w,m.h,W,H); drawOverlay(x,t,W,H,ov,lay,logo,dur,false); };
     const stream=cv.captureStream(30); let ac=null, hasAudio=false;
     try{ const AC=window.AudioContext||window.webkitAudioContext; ac=new AC(); const src=ac.createMediaElementSource(v), dest=ac.createMediaStreamDestination(); src.connect(dest);
@@ -1544,7 +1564,7 @@ async function planRows(){
 }
 let GEN_NOTES=[];
 async function ovTextFor(topic){
-  const j=await aiJSON('I am posting my own photo or video to Instagram. What it shows: "'+topic+'".\nReturn JSON only: {"headline":"punchy overlay text, max 7 words, no full stop","lines":["up to 3 short overlay points, max 7 words each, only things that are true of this content"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me"}\nDo not invent results, numbers or testimonials. Do not sound like an AI: no hype, no triplets of adjectives.',1500);
+  const j=await aiJSON('I am posting my own photo or video to Instagram. What it shows: "'+topic+'".\nReturn JSON only: {"headline":"punchy overlay text, max 7 words, no full stop","lines":["up to 3 short overlay points, max 7 words each, only things that are true of this content"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action that mentions the free 7-day starter plan in the link in my bio (never write a web address), no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me"}\nDo not invent results, numbers or testimonials. Do not sound like an AI: no hype, no triplets of adjectives.',1500);
   const ov={ on:true, headline:String(j.headline||'').trim(), lines:(j.lines||[]).map(String).slice(0,3), word:String(j.word||'COACH').toUpperCase().replace(/[^A-Z0-9]/g,'')||'COACH', logo:true, cta:true };
   const cap=String(j.caption||'').trim()+((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
   return { ov, cap };
@@ -1563,6 +1583,20 @@ async function stockPhoto(query){
   if(!r.ok||j.error||!j.data) throw new Error(j.error||('Stock photo request failed ('+r.status+')'));
   skip.push(j.id); lset('hq:stockUsed',JSON.stringify(skip.slice(-80)));
   return loadImgUrl(j.data);
+}
+// A free Pexels gym video clip as a File, or null when stock video is not connected / not found
+async function stockVideoFile(query){
+  if(DEMO){ return window.__mockStockVideo ? window.__mockStockVideo(query) : null; }
+  try{
+    const { data } = await sb.auth.getSession();
+    let skip=[]; try{ skip=JSON.parse(lget('hq:vidUsed')||'[]'); }catch(e){}
+    const r=await fetch(SUPABASE_URL+'/functions/v1/instagram',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+data.session.access_token},body:JSON.stringify({action:'stockvideo',query,skip})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||j.error||!j.data) return null;
+    skip.push(j.id); lset('hq:vidUsed',JSON.stringify(skip.slice(-80)));
+    const blob=await (await fetch(j.data)).blob();
+    return new File([blob],'stock-'+j.id+'.mp4',{type:'video/mp4'});
+  }catch(e){ return null; }
 }
 const DRAWN_LAYOUTS=['statement','bone','quote','tiles','redblock'], PHOTO_LAYOUTS=['photoFull','photoSplit','photoFrame','photoDuo'];
 const shuffleArr=a=>{ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
@@ -1613,9 +1647,9 @@ async function generateWeek(reels, demos, tick, libN){
   const last=rows.filter(r=>r.status!=='skipped').map(r=>r.run_at).sort().pop();
   if(last){ const ld=new Date(last); ld.setHours(0,0,0,0); ld.setDate(ld.getDate()+1); if(ld>start) start=ld; }
   tick('Writing the week...');
-  const j=await aiJSON('Plan 7 days of Instagram content for my coaching business.\nFor EACH day give one feed post idea (a useful, specific coaching tip a real coach would say, drawn from my niche), plus two story call-to-action cards.\nReturn JSON only: {"days":[{"headline":"punchy, max 7 words, no full stop","lines":["3 short specific points, max 10 words each"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me about this post, e.g. PROTEIN","tag":"ONE word topic label such as TRAINING, NUTRITION, RECOVERY, MINDSET, RUNNING or MISTAKES","photo":"2 to 4 word search for a real stock photo that fits this post, such as barbell squat gym, kettlebell swing, running track sunrise or healthy meal prep","cta1":{"headline":"max 8 words, a low-pressure invitation tied to my offer, no price, no promises","word":"ONE uppercase DM keyword"},"cta2":{"headline":"max 8 words, a different angle to cta1","word":"ONE uppercase DM keyword"}}]}\nExactly 7 days. Vary the topics (training, nutrition, recovery, mindset, running, common mistakes). Do not sound like an AI: no "Here\'s the thing", no triplets of adjectives, no hype. '+(recent.length?'Do not repeat or closely echo these recent topics: '+recent.join(' | ')+'.':''), 6000);
+  const j=await aiJSON('Plan 7 days of Instagram content for my coaching business.\nFor EACH day give one feed post idea (a useful, specific coaching tip a real coach would say, drawn from my niche), plus two story call-to-action cards.\nReturn JSON only: {"days":[{"headline":"a scroll-stopping hook, 3 to 5 words, no full stop (a bold claim, a mistake, or a number, e.g. STOP DOING CRUNCHES)","lines":["exactly 2 very short points, max 4 words each"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action that mentions the free 7-day starter plan in the link in my bio (never write a web address), no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me about this post, e.g. PROTEIN","tag":"ONE word topic label such as TRAINING, NUTRITION, RECOVERY, MINDSET, RUNNING or MISTAKES","photo":"2 to 4 word search for a real stock photo that fits this post, such as barbell squat gym, kettlebell swing, running track sunrise or healthy meal prep","cta1":{"headline":"max 8 words, a low-pressure invitation to grab my free 7-day starter plan from the link in my bio, no price, no promises","word":"ONE uppercase DM keyword"},"cta2":{"headline":"max 8 words, a different angle to cta1","word":"ONE uppercase DM keyword"}}]}\nExactly 7 days. Vary the topics (training, nutrition, recovery, mindset, running, common mistakes). Do not sound like an AI: no "Here\'s the thing", no triplets of adjectives, no hype. '+(recent.length?'Do not repeat or closely echo these recent topics: '+recent.join(' | ')+'.':''), 6000);
   const days=(j.days||[]).slice(0,7); if(days.length<7) throw new Error('The AI only wrote '+days.length+' days. Try again.');
-  const reelDays = reels>0 ? [1,3,5,6].slice(0,reels) : [];
+  const reelDays = reels>0 ? (({2:[1,4],3:[1,3,5],4:[0,2,4,6],5:[0,1,3,4,6]})[reels]||[1,3,5]) : [];
   const demoDays = ({0:[],1:[2],2:[1,4],3:[0,2,4]})[demos]||[];
   const demoPick={};
   if(demoDays.length){
@@ -1623,7 +1657,7 @@ async function generateWeek(reels, demos, tick, libN){
     const used=recent.join(' | '); const fresh=all.filter(a=>!used.includes('App demo: '+a.title)); const pool=(fresh.length>=demoDays.length?fresh:all).slice();
     for(let k=0;k<demoDays.length;k++){
       const sc=pool[k%pool.length]; tick('Writing the app demo post...');
-      const dj=await aiJSON('Write one Instagram post that shows off my client app using this real screen: "'+sc.title+'". What the screen genuinely shows: '+sc.shows+'\nOnly talk about what is listed here. Do not invent features, numbers, results or testimonials.\nReturn JSON only: {"headline":"max 7 words, benefit-led, no full stop","lines":["3 short callouts of max 5 words each, true to the screen"],"caption":"in my voice, 350 characters or fewer, plain and human, say what it does and why it helps, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase DM keyword, e.g. APP"}\nDo not sound like an AI: no hype, no triplets of adjectives.', 1500);
+      const dj=await aiJSON('Write one Instagram post that shows off my client app using this real screen: "'+sc.title+'". What the screen genuinely shows: '+sc.shows+'\nOnly talk about what is listed here. Do not invent features, numbers, results or testimonials.\nReturn JSON only: {"headline":"max 7 words, benefit-led, no full stop","lines":["3 short callouts of max 5 words each, true to the screen"],"caption":"in my voice, 350 characters or fewer, plain and human, say what it does and why it helps, soft call to action that mentions the free 7-day starter plan in the link in my bio (never write a web address), no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase DM keyword, e.g. APP"}\nDo not sound like an AI: no hype, no triplets of adjectives.', 1500);
       demoPick[demoDays[k]]={sc,dj};
     }
   }
@@ -1691,8 +1725,16 @@ async function generateWeek(reels, demos, tick, libN){
       }
     } else if(reelDays.includes(i)){
       tick('Day '+(i+1)+' of 7: recording the reel (keep this tab open)...');
-      await chooseReelLook(card,pc,d.photo);
-      const blob=await makeReelBlob(card,u=>tick('Day '+(i+1)+' of 7: recording the reel '+Math.round(u*100)+'% (keep this tab open)'));
+      let blob=null;
+      const sv=await stockVideoFile(String(d.photo||'gym training').slice(0,60));
+      if(sv){ try{
+        const ovr={ on:true, headline:card.headline, lines:card.lines.slice(0,2), word:card.word.toUpperCase().replace(/[^A-Z0-9]/g,'')||'COACH', logo:true, cta:true, maxSec:12 };
+        blob=(await makeOverlayVideo(sv,ovr,u=>tick('Day '+(i+1)+' of 7: editing the video reel '+Math.round(u*100)+'% (keep this tab open)'))).blob;
+      }catch(e){ blob=null; GEN_NOTES.push('Day '+(i+1)+': stock video failed ('+(e.message||e)+'), used an animated text reel instead.'); } }
+      if(!blob){
+        await chooseReelLook(card,pc,d.photo);
+        blob=await makeReelBlob(card,u=>tick('Day '+(i+1)+' of 7: recording the reel '+Math.round(u*100)+'% (keep this tab open)'));
+      }
       const url=await putMedia(blob,'mp4','video/mp4');
       [parent]=await db.insert('ig_schedule',[mk({kind:'reel',media_url:url,caption:cap,label:card.headline,run_at:atLocal(day,T.post)})]);
       await db.insert('ig_schedule',[mk({kind:'story_video',media_url:url,label:'Story repost: '+card.headline,run_at:atLocal(day,T.repost),repost_of:parent.id})]);
@@ -1755,7 +1797,7 @@ async function planSheet(){
   sheet('Weekly plan', `
     <div class="help">One post or reel a day, a story repost of it, and two call-to-action stories. Nothing goes out until you approve it. Approved items post by themselves at the time shown, even when HQ is closed.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0"><span class="pill">${drafts} to approve</span><span class="pill" style="color:#3FB950;border-color:rgba(63,185,80,.4)">${approved} scheduled</span>${failed?`<span class="pill">${failed} failed</span>`:''}</div>
-    <div class="fld"><label>Animated reels in the next 7 days</label><select class="sel" id="plReels">${[0,2,3,4].map(n=>`<option value="${n}" ${n===(canReel?3:0)?'selected':''} ${n>0&&!canReel?'disabled':''}>${n===0?'None, posts only':n+' reels, the rest posts'}</option>`).join('')}</select>${canReel?'':'<div class="help" style="margin-top:6px">This browser cannot save MP4 reels, so reels are off. Use an up-to-date Chrome or Safari for those.</div>'}</div>
+    <div class="fld"><label>Animated reels in the next 7 days</label><select class="sel" id="plReels">${[0,3,4,5].map(n=>`<option value="${n}" ${n===(canReel?4:0)?'selected':''} ${n>0&&!canReel?'disabled':''}>${n===0?'None, posts only':n+' reels, the rest posts'}</option>`).join('')}</select>${canReel?'':'<div class="help" style="margin-top:6px">This browser cannot save MP4 reels, so reels are off. Use an up-to-date Chrome or Safari for those.</div>'}</div>
     <div class="fld"><label>App demo posts in the next 7 days</label><select class="sel" id="plDemos">${[0,1,2,3].map(n=>`<option value="${n}" ${n===1?'selected':''}>${n===0?'None':n+(n===1?' day shows':' days show')+' the client app'}</option>`).join('')}</select><div class="help" style="margin-top:6px">Uses real screens from your client app inside a phone frame. These replace that day's usual post.</div></div>
     <div class="fld"><label>Days that use your own clips or photos (from My content)</label><select class="sel" id="plLib">${[0,1,2,3].map(n=>`<option value="${n}" ${n===0?'selected':''}>${n===0?'None':n+(n===1?' day':' days')}</option>`).join('')}</select></div>
     <div class="row"><button class="btn" id="plGen">Write and design the next 7 days</button>${drafts?`<button class="btn pri" id="plAll">Approve all ${drafts}</button>`:''}</div>
@@ -1862,13 +1904,13 @@ function igPostSheet(opts){
     });
     $('#ovSuggest',b).onclick=()=>working($('#ovSuggest',b),'Writing...',async()=>{
       const topic=$('#ovTopic',b).value.trim(); if(!topic) throw new Error('Say what it is about first.');
-      const j=await aiJSON('I am posting my own photo or video to Instagram. What it shows: "'+topic+'".\nReturn JSON only: {"headline":"punchy overlay text, max 7 words, no full stop","lines":["up to 3 short overlay points, max 7 words each, only things that are true of this content"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action, no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me"}\nDo not invent results, numbers or testimonials. Do not sound like an AI: no hype, no triplets of adjectives.',1500);
+      const j=await aiJSON('I am posting my own photo or video to Instagram. What it shows: "'+topic+'".\nReturn JSON only: {"headline":"punchy overlay text, max 7 words, no full stop","lines":["up to 3 short overlay points, max 7 words each, only things that are true of this content"],"caption":"in my voice, 350 characters or fewer, plain and human, one useful idea, soft call to action that mentions the free 7-day starter plan in the link in my bio (never write a web address), no hashtags in it","hashtags":["max 5 without #"],"word":"ONE uppercase keyword people can DM me"}\nDo not invent results, numbers or testimonials. Do not sound like an AI: no hype, no triplets of adjectives.',1500);
       $('#ovHead',b).value=String(j.headline||'').trim(); $('#ovPts',b).value=(j.lines||[]).map(String).slice(0,3).join('\n'); $('#ovWord',b).value=String(j.word||'COACH').toUpperCase();
       $('#igCap',b).value=String(j.caption||'').trim()+((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
     });
     $('#igMake',b).onclick = ()=>working($('#igMake',b),'Writing...',async()=>{
       const topic=$('#igTopic',b).value.trim(); if(!topic) throw new Error('Type a topic first.');
-      const j = await aiJSON('Write one Instagram post for this topic: "'+topic+'".\nReturn JSON only: {"headline": "punchy, max 7 words, no full stop", "lines": ["3 short, specific points, max 10 words each"], "caption": "the caption in my voice, 350 characters or fewer, plain and human, one useful idea, a soft call to action like asking them to DM a word, no hashtags in it", "hashtags": ["max 5 relevant hashtags without the # symbol"], "word": "ONE uppercase keyword people can DM me, e.g. PROTEIN", "tag": "ONE word topic label such as TRAINING or NUTRITION", "photo": "2 to 4 word stock photo search that fits, e.g. barbell squat gym"}\nNo emojis unless they feel natural. Do not sound like an AI: no "Here\'s the thing", no lists of three adjectives, no hype.', 1500);
+      const j = await aiJSON('Write one Instagram post for this topic: "'+topic+'".\nReturn JSON only: {"headline": "punchy, max 7 words, no full stop", "lines": ["3 short, specific points, max 10 words each"], "caption": "the caption in my voice, 350 characters or fewer, plain and human, one useful idea, a soft call to action telling them the free 7-day starter plan is in the link in my bio, no hashtags in it", "hashtags": ["max 5 relevant hashtags without the # symbol"], "word": "ONE uppercase keyword people can DM me, e.g. PROTEIN", "tag": "ONE word topic label such as TRAINING or NUTRITION", "photo": "2 to 4 word stock photo search that fits, e.g. barbell squat gym"}\nNo emojis unless they feel natural. Do not sound like an AI: no "Here\'s the thing", no lists of three adjectives, no hype.', 1500);
       card={ headline:String(j.headline||'').trim(), lines:(j.lines||[]).map(String).slice(0,3), word:String(j.word||'COACH'), tag:String(j.tag||'').replace(/[^A-Za-z ]/g,'').slice(0,18), photoQ:String(j.photo||''), photo:null };
       $('#igHead',b).value=card.headline; $('#igPts',b).value=card.lines.join('\n');
       $('#igCap',b).value = String(j.caption||'').trim() + ((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
@@ -1919,6 +1961,19 @@ function igPostSheet(opts){
       if(!r.ok||j.error) throw new Error(j.error||('Instagram request failed ('+r.status+')'));
       await markLib();
       closeSheet(); toast('Posted to Instagram'+extra); if(j.permalink) window.open(j.permalink,'_blank');
+    });
+  });
+}
+
+// ---------- Film this week: a short shot list for real phone footage ----------
+function filmSheet(){
+  sheet('Film this week', `
+    <div class="help">Real footage beats graphics for reach. This gives you 5 clips to film on your phone in about 20 minutes, no editing. Upload them under My content and the weekly plan puts the hook text, logo and end card on for you.</div>
+    <div class="row"><button class="btn pri" id="fsGo">Write my shot list</button></div><div id="fsOut" style="margin-top:12px"></div>`, b=>{
+    const go=$('#fsGo',b); go.onclick=()=>working(go,'Writing...',async()=>{
+      const j=await aiJSON('I am a personal trainer filming short vertical Instagram reels on my phone in a gym, no editing, no actor. Give me 5 different clips to film this week.\nReturn JSON only: {"clips":[{"hook":"the on-screen opening line, 3 to 6 words","shot":"exactly what to film, one sentence, simple, doable alone with a phone propped on a bench","seconds":8,"type":"one of: form tip, common mistake, day in the life, quick workout, myth bust"}]}\nMake them specific to lifting, running and nutrition coaching. Nothing that needs a second person. No hype, no claims about results.');
+      const cl=(j.clips||[]).slice(0,5);
+      $('#fsOut',b).innerHTML=cl.map((c,i)=>`<div style="padding:12px;border:1px solid var(--line2);border-radius:12px;margin-bottom:8px"><div style="font-weight:700">${i+1}. ${esc(String(c.hook||''))}</div><div style="margin:4px 0">${esc(String(c.shot||''))}</div><div class="help">${esc(String(c.type||''))} · about ${esc(String(c.seconds||8))} seconds · film vertical, good light, first second must already be moving</div></div>`).join('')||'<div class="empty">Nothing came back. Try again.</div>';
     });
   });
 }
@@ -2544,10 +2599,13 @@ async function clientSheet(c){
     ${targets?`<div class="help">Protein today: ${Math.round(prot)}g of ${targets.protein}g</div>`:''}
     <div id="intelBox"></div>
     <div id="actBox"></div>
+    <div class="fld"><label>Name (used in automatic messages and reminders)</label><input class="inp" id="cName" value="${esc(c.display_name||'')}" placeholder="First name, or full name" autocomplete="off"></div>
+    <div class="fld"><label>Access</label><select class="sel" id="cComp"><option value="0" ${c.comped?'':'selected'}>Pays normally</option><option value="1" ${c.comped?'selected':''}>Free access (skips payment)</option></select><div class="help" style="margin-top:6px">Use this for friends, testers and anyone you want to give in for free. They never see a payment step.</div></div>
     <div class="fld"><label>Level</label><select class="sel" id="cLevel"><option value="app" ${c.level==='app'?'selected':''}>App member</option><option value="pro" ${c.level==='pro'?'selected':''}>Pro membership</option><option value="coaching" ${c.level==='coaching'?'selected':''}>1:1 coaching</option></select></div>
     <div class="fld"><label>Status</label><select class="sel" id="cStatus">${['active','paused','ended'].map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
     <div class="fld"><label>Your private notes</label><textarea class="ta" id="cNotes" rows="3">${esc(c.coach_notes||'')}</textarea></div>
     <div class="row"><button class="btn" id="cSave">Save details</button><button class="btn" id="cMsg">Draft a check-in</button></div>
+    <div class="row" style="margin-top:8px"><button class="btn" id="cReview">Ask for a review</button><button class="btn" id="cRef">Ask for a referral</button></div>
     ${isDraft?'':`<div class="sec">Their training</div><div id="planBox">${planHTML()}</div>`}`, b=>{
     const rebind = ()=>{
       $$('[data-f]',b).forEach(i=>i.onchange=()=>{ const x=edit.days[i.dataset.d].exercises[i.dataset.e]; x[i.dataset.f] = i.dataset.f==='name'?i.value:(Number(i.value)||0); });
@@ -2577,7 +2635,12 @@ async function clientSheet(c){
     };
     rebind(); mountActivity(c, plan, logs, targets, b);
     (async()=>{ try{ if(!INTEL[c.user_id]) INTEL[c.user_id]=(await intelLoad([c]))[c.user_id]||{}; const bx=$('#intelBox',b); if(bx) intelBlock(c,bx); }catch(e){} })();
-    $('#cSave',b).onclick = async ()=>{ const p={level:$('#cLevel',b).value,status:$('#cStatus',b).value,coach_notes:$('#cNotes',b).value.trim()}; Object.assign(c,p); await db.update('clients','user_id',c.user_id,p); renderClients(); toast('Saved'); };
+    $('#cSave',b).onclick = async ()=>{ const p={display_name:$('#cName',b).value.trim().slice(0,60),level:$('#cLevel',b).value,status:$('#cStatus',b).value,coach_notes:$('#cNotes',b).value.trim()}; Object.assign(c,p); await db.update('clients','user_id',c.user_id,p);
+      const cp=$('#cComp',b).value==='1'; if(!!c.comped!==cp){ try{ await db.update('clients','user_id',c.user_id,{comped:cp}); c.comped=cp; }catch(e){ toast('Saved, but free access needs the one-line database update first (see the guide).'); renderClients(); return; } }
+      renderClients(); toast('Saved'); };
+    const askDraft=async(title,body)=>{ Q=(await db.insert('queue',[{kind:'reminder',title,body,client_id:c.user_id,status:'draft',meta:{}}])).concat(Q); closeSheet(); go('today'); toast('Drafted. Approve it on Today.'); };
+    $('#cReview',b).onclick=()=>askDraft('Ask for a review','Hey '+(c.display_name||'mate').split(' ')[0]+", it's Nash. Really glad to have you training with me. Would you be up for sending me a couple of lines on how it's going so far and what has changed for you? Be honest, good or bad. If you're comfortable with it, I'd love to share it using just your first name. Totally fine to say no.");
+    $('#cRef',b).onclick=()=>askDraft('Ask for a referral','Hey '+(c.display_name||'mate').split(' ')[0]+", it's Nash. If you know a mate who'd get value from training, send them my way. I'll give them a free 7-day starter plan and look after them properly. They can grab it here: "+landingUrl());
     $('#cMsg',b).onclick = ()=>working($('#cMsg',b),'Drafting...',async()=>{
       const j = await aiJSON('Write one short check-in or motivation message from the coach to a client. Keep it human and specific, under 50 words, no clichés. Client: '+(c.display_name||'client')+'. This week: '+(plan?('week '+plan.weekNumber+', '+done+' of '+(plan.days||[]).length+' sessions done'):'no plan yet')+'. '+(targets?('Calories today '+Math.round(eaten)+' of '+targets.calories+'.'):'')+' Coach notes: '+(c.coach_notes||'none')+'\nReturn JSON only: {"text":""}', 1500);
       Q = (await db.insert('queue',[{kind:'reminder',title:'Check-in',body:String(j.text||'').trim(),client_id:c.user_id,status:'draft',meta:{}}])).concat(Q);
@@ -2751,17 +2814,18 @@ document.addEventListener('click', async e=>{
     else if(t.dataset.act==='reject'){ await setQ(q,{status:'rejected'}); }
     else if(t.dataset.act==='copy'){ await copy(composeCopy(q)); toast('Copied'); return; }
     else if(t.dataset.act==='ig'){ const l=leadOf(q.lead_id); await copy(q.body); window.open('https://ig.me/m/'+encodeURIComponent(l.handle),'_blank'); toast('Message copied. Paste it into the chat.'); return; }
+    else if(t.dataset.act==='mail'){ const m=q.meta||{}; await copy(q.body); window.location.href='mailto:'+encodeURIComponent(m.email)+'?subject='+encodeURIComponent(m.subject||'Your Redline starter plan')+'&body='+encodeURIComponent(q.body); toast('Email opened. The message is also copied.'); return; }
     else if(t.dataset.act==='done'){
       await setQ(q,{status:'done',sent_at:new Date().toISOString()});
-      const l=leadOf(q.lead_id); if(l && q.kind==='dm') await setLead(l,{stage:l.stage==='new'?'contacted':l.stage,last_touch:new Date().toISOString(),next_touch:addDays(3)});
+      const l=leadOf(q.lead_id); if(l && (q.kind==='dm'||(q.meta&&q.meta.email))) await setLead(l,{stage:l.stage==='new'?'contacted':l.stage,last_touch:new Date().toISOString(),next_touch:addDays(3)});
       // any approved message tied to a client/lead also lands in the Inbox thread as sent
       if(q.meta && q.meta.macro && q.client_id){ try{ const old=(await db.kvGet(q.client_id,'targets'))||{}; await db.kvSet(q.client_id,'targets',Object.assign({},old,q.meta.macro)); if(INTEL[q.client_id]) INTEL[q.client_id].targets=Object.assign({},old,q.meta.macro); }catch(e){ toast('Sent, but the targets could not be changed. Edit them by hand.'); } }
-      if(q.client_id || q.lead_id){
+      if((q.client_id || q.lead_id) && !(q.meta&&q.meta.email)){
         await db.insert('messages',[{ client_id:q.client_id||null, lead_id:q.lead_id||null, source:q.client_id?'app':'instagram', direction:'out', author:'coach', body:q.body }]);
         MSGS = await db.list('messages');
         if(q.client_id) await notify(q.client_id, 'coach_replied', 'Your coach replied', q.body.slice(0,80), '');
       }
-      toast(q.kind==='dm'?'Logged. Follow-up due in 3 days.':'Done');
+      toast((q.kind==='dm'||(q.meta&&q.meta.email))?'Logged. Follow-up due in 3 days.':'Done');
     }
     render(); return;
   }
@@ -2776,6 +2840,7 @@ document.addEventListener('click', async e=>{
   if(t.id==='addClientBtn') return addClientSheet();
   if(t.id==='dmFirst') return working(t,'Drafting...',async()=>{ const n=await draftDMs('first'); if(n){ toast(n+' drafted. Approve them on Today.'); go('today'); } });
   if(t.id==='dmFollow') return working(t,'Drafting...',async()=>{ const n=await draftDMs('follow'); if(n){ toast(n+' drafted. Approve them on Today.'); go('today'); } });
+  if(t.id==='igOpenFilm') return filmSheet();
   if(t.id==='igOpenPlan' || t.closest('[data-openplan]')) return planSheet();
   if(t.id==='igOpenPost') return igPostSheet();
   if(t.dataset.film){ const q=Q.find(x=>x.id===t.dataset.film); if(q) igPostSheet({manual:true, topic:((q.title?q.title+'. ':'')+String(q.body||'')).replace(/\s+/g,' ').slice(0,280)}); return; }
