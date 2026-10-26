@@ -829,7 +829,7 @@ function renderContent(){
   };
   $('#s-content').innerHTML = `
     <div class="lead-h"><h2>Instagram</h2></div>
-    <div class="row" style="margin:0 0 12px"><button class="btn pri" id="igOpenPlan">Weekly plan</button><button class="btn" id="igOpenPost">Post now</button><button class="btn" id="igOpenLib">My content</button><button class="btn" id="igOpenFilm">Film this week</button><button class="btn" id="igOpenRep">Weekly report</button></div><div class="help" id="bestTimeNote" style="margin:-4px 0 12px"></div>
+    <div class="row" style="margin:0 0 12px"><button class="btn pri" id="igOpenPlan">Weekly plan</button><button class="btn" id="igOpenPost">Post now</button><button class="btn" id="igOpenLib">My content</button><button class="btn" id="igOpenFilm">Film this week</button><button class="btn" id="igOpenDaily">Daily 15</button><button class="btn" id="igOpenRep">Weekly report</button></div><div class="help" id="bestTimeNote" style="margin:-4px 0 12px"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px"><span class="pill">${drafts.length} to approve</span><span class="pill" style="color:#3FB950;border-color:rgba(63,185,80,.4)">${sched.length} scheduled</span><span class="pill" style="color:var(--dim);border-color:var(--line2)">${posted.length} posted</span>${failed.length?`<span class="pill">${failed.length} failed</span>`:''}</div>
     ${coming.length ? `<div class="help" style="margin-bottom:8px">Coming up. Tap any to review, edit or approve.</div><div class="grid2" style="margin-bottom:22px">${coming.map(row).join('')}</div>`
       : `<div class="empty" style="margin-bottom:22px">Nothing scheduled yet.<br>Tap <b>Weekly plan</b> and HQ writes and designs the next 7 days: a post or reel a day, a story repost and two call-to-action stories. You approve once, then it posts by itself.</div>`}
@@ -1997,6 +1997,67 @@ function igPostSheet(opts){
   });
 }
 
+// ---------- Proof posts: turn a client's win into a post, only with their OK ----------
+function proofSheet(c){
+  let pre=''; try{ const cks=checkinsOf(INTEL[c.user_id]||{}).filter(x=>x.win); if(cks.length) pre=String(cks[cks.length-1].win||''); }catch(e){}
+  const first=(c.display_name||'').split(' ')[0];
+  sheet('Proof post', `
+    <div class="help">Post a real result, only with the client's clear OK. Ask them first, for example with "Ask for a review". Nothing is invented: the post only uses the words you put in below.</div>
+    <div class="fld"><label>Their win, in your words</label><textarea class="ta" id="pfWin" rows="3" placeholder="e.g. Down 3kg in 4 weeks and hit a 60kg squat for the first time">${esc(pre)}</textarea></div>
+    <div class="fld"><label>Show their name as</label><select class="sel" id="pfWho"><option value="first">${esc(first||'First name')}</option><option value="anon">A Redline client</option></select></div>
+    <label style="display:flex;gap:10px;align-items:flex-start;margin:12px 0"><input type="checkbox" id="pfOk" style="margin-top:3px;width:18px;height:18px"><span>${esc(first||'The client')} said yes to me posting this result.</span></label>
+    <div class="row"><button class="btn pri" id="pfGo">Make the post</button></div><div id="pfOut" class="help" style="margin-top:10px"></div>`, b=>{
+    const go=$('#pfGo',b); go.onclick=()=>working(go,'Making it...',async()=>{
+      const win=$('#pfWin',b).value.trim().slice(0,300);
+      if(!win){ toast('Write their win first.'); return; }
+      if(!$('#pfOk',b).checked){ toast('Tick the box once they have said yes.'); return; }
+      const who=$('#pfWho',b).value==='first'&&first?first:'A Redline client';
+      const j=await aiJSON('Write an Instagram result post for my coaching business using ONLY this real client result: "'+win+'". Client shown as: "'+who+'".\nReturn JSON only: {"headline":"max 5 words, the result itself in caps style, no full stop, e.g. DOWN 3KG IN 4 WEEKS","lines":["one short line, max 6 words, true to the result","an optional second short line, max 6 words"],"caption":"in my voice, 350 characters or fewer, plain and human, congratulate the client by the name shown, say what they did, end with a soft invite to the free 7-day starter plan in the link in my bio (never write a web address). Do not add any number, claim or detail that is not in the result. Do not promise anyone the same result.","hashtags":["max 5 without #"]}');
+      const card={headline:String(j.headline||win).trim().slice(0,40), lines:(j.lines||[]).map(String).filter(Boolean).slice(0,2), word:'COACH', tag:'RESULT', layout:'statement'};
+      const cap=String(j.caption||'').trim()+'\n\nResults vary. This is one client\'s result.'+((j.hashtags&&j.hashtags.length)?('\n\n'+j.hashtags.slice(0,5).map(h=>'#'+String(h).replace(/^#/,'')).join(' ')):'');
+      const cv=document.createElement('canvas');
+      await renderCard(cv,card,false); const u1=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
+      await renderCard(cv,card,true); const u2=await putMedia(await canvasJpeg(cv),'jpg','image/jpeg');
+      const day=new Date(); day.setDate(day.getDate()+1);
+      const mk=r=>Object.assign({owner:ME.id,caption:'',status:'draft'},r);
+      const [parent]=await db.insert('ig_schedule',[mk({kind:'photo',media_url:u1,caption:cap,label:'Proof: '+card.headline,run_at:atLocal(day,PLAN_TIMES.post)})]);
+      await db.insert('ig_schedule',[mk({kind:'story_photo',media_url:u2,label:'Story repost: Proof: '+card.headline,run_at:atLocal(day,PLAN_TIMES.repost),repost_of:parent.id})]);
+      $('#pfOut',b).innerHTML='Done. It is waiting for your approval in the weekly plan list, set for tomorrow.';
+    });
+  });
+}
+
+// ---------- Daily 15: the 15 minutes a day that gets you seen by new people ----------
+function dailySheet(){
+  const day=new Date().toISOString().slice(0,10), key='hq:daily:'+day;
+  let done={}; try{ done=JSON.parse(lget(key)||'{}'); }catch(e){}
+  const TASKS=[
+    ['c','Leave 5 real comments on fresh posts from bigger fat-loss and beginner gym accounts (under 2 hours old if you can)'],
+    ['r','Reply to every comment on your own posts, and ask a question back'],
+    ['s','React or reply to 5 stories from people who follow you or comment on yours'],
+    ['f','Follow 10 people who engage with those accounts (people, not brands)']
+  ];
+  const TAGS=['#fatlosstips','#beginnergym','#caloriedeficit','#gymbeginner','#proteinmeals','#brisbanefitness','#goldcoastfitness','#hybridathlete'];
+  sheet('Daily 15', `
+    <div class="help">Posting alone rarely gets a small account seen. Real comments on bigger accounts put your name in front of their followers. Do these once a day, about 15 minutes.</div>
+    <div id="dlList">${TASKS.map(t=>`<label style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line2)"><input type="checkbox" data-d="${t[0]}" ${done[t[0]]?'checked':''} style="margin-top:3px;width:18px;height:18px"><span>${esc(t[1])}</span></label>`).join('')}</div>
+    <div class="sec">Search these today</div>
+    <div class="help">${TAGS.map(esc).join(' &nbsp; ')}</div>
+    <div class="sec">Draft comments</div>
+    <div class="fld"><label>Paste the caption, or describe the post in a line</label><textarea class="ta" id="dlPost" rows="3" placeholder="e.g. Coach says you cannot spot reduce belly fat"></textarea></div>
+    <div class="row"><button class="btn pri" id="dlGo">Draft 3 comments</button></div>
+    <div id="dlOut" style="margin-top:12px"></div>`, b=>{
+    $$('[data-d]',b).forEach(x=>x.onchange=()=>{ done[x.dataset.d]=x.checked; try{ localStorage.setItem(key,JSON.stringify(done)); }catch(e){} });
+    const go=$('#dlGo',b); go.onclick=()=>working(go,'Writing...',async()=>{
+      const post=$('#dlPost',b).value.trim().slice(0,1200); if(!post){ toast('Add the caption or a line about the post first.'); return; }
+      const j=await aiJSON('I am a personal trainer (Redline Training) commenting on another account\'s Instagram post to be seen by new people. The post: "'+post+'".\nReturn JSON only: {"comments":["...","...","..."]}\nThree different comments, each 8 to 25 words. Each must add something real: a specific point, a short personal observation, or a smart question about what the post says. Casual, human, no hashtags, no emoji or at most one, no selling, no mention of my business, no generic praise like "great post" or "love this". Do not sound like an AI.');
+      const cs=(j.comments||[]).slice(0,3);
+      $('#dlOut',b).innerHTML=cs.map((c,i)=>`<div style="padding:12px;border:1px solid var(--line2);border-radius:12px;margin-bottom:8px"><div style="margin-bottom:8px">${esc(String(c))}</div><button class="btn" data-cp="${i}">Copy</button></div>`).join('')||'<div class="empty">Nothing came back. Try again.</div>';
+      $$('[data-cp]',$('#dlOut',b)).forEach(x=>x.onclick=async()=>{ try{ await navigator.clipboard.writeText(String(cs[Number(x.dataset.cp)])); toast('Copied. Paste it on the post.'); }catch(e){ toast('Could not copy. Select the text and copy it.'); } });
+    });
+  });
+}
+
 // ---------- Film this week: a short shot list for real phone footage ----------
 function filmSheet(){
   sheet('Film this week', `
@@ -2637,7 +2698,7 @@ async function clientSheet(c){
     <div class="fld"><label>Status</label><select class="sel" id="cStatus">${['active','paused','ended'].map(s=>`<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
     <div class="fld"><label>Your private notes</label><textarea class="ta" id="cNotes" rows="3">${esc(c.coach_notes||'')}</textarea></div>
     <div class="row"><button class="btn pri" id="cSave">Save details</button><button class="btn" id="cMsg">Draft a check-in</button></div>
-    <div class="row" style="margin-top:8px"><button class="btn" id="cReview">Ask for a review</button><button class="btn" id="cRef">Ask for a referral</button></div>
+    <div class="row" style="margin-top:8px"><button class="btn" id="cProof">Make a proof post</button><button class="btn" id="cReview">Ask for a review</button><button class="btn" id="cRef">Ask for a referral</button></div>
     ${isDraft?'':`<div class="sec">Their training</div><div id="planBox">${planHTML()}</div>`}`, b=>{
     const rebind = ()=>{
       $$('[data-f]',b).forEach(i=>i.onchange=()=>{ const x=edit.days[i.dataset.d].exercises[i.dataset.e]; x[i.dataset.f] = i.dataset.f==='name'?i.value:(Number(i.value)||0); });
@@ -2672,6 +2733,7 @@ async function clientSheet(c){
       renderClients(); toast('Saved'); };
     ['#cName','#cComp','#cLevel','#cStatus'].forEach(id=>{ const el=$(id,b); if(el) el.onchange=()=>$('#cSave',b).click(); });
     const askDraft=async(title,body)=>{ Q=(await db.insert('queue',[{kind:'reminder',title,body,client_id:c.user_id,status:'draft',meta:{}}])).concat(Q); closeSheet(); go('today'); toast('Drafted. Approve it on Today.'); };
+    $('#cProof',b).onclick=()=>proofSheet(c);
     $('#cReview',b).onclick=()=>askDraft('Ask for a review','Hey '+(c.display_name||'mate').split(' ')[0]+", it's Nash. Really glad to have you training with me. Would you be up for sending me a couple of lines on how it's going so far and what has changed for you? Be honest, good or bad. If you're comfortable with it, I'd love to share it using just your first name. Totally fine to say no.");
     $('#cRef',b).onclick=()=>askDraft('Ask for a referral','Hey '+(c.display_name||'mate').split(' ')[0]+", it's Nash. If you know a mate who'd get value from training, send them my way. I'll give them a free 7-day starter plan and look after them properly. They can grab it here: "+landingUrl());
     $('#cMsg',b).onclick = ()=>working($('#cMsg',b),'Drafting...',async()=>{
@@ -2874,6 +2936,7 @@ document.addEventListener('click', async e=>{
   if(t.id==='dmFirst') return working(t,'Drafting...',async()=>{ const n=await draftDMs('first'); if(n){ toast(n+' drafted. Approve them on Today.'); go('today'); } });
   if(t.id==='dmFollow') return working(t,'Drafting...',async()=>{ const n=await draftDMs('follow'); if(n){ toast(n+' drafted. Approve them on Today.'); go('today'); } });
   if(t.id==='igOpenFilm') return filmSheet();
+  if(t.id==='igOpenDaily') return dailySheet();
   if(t.id==='igOpenPlan' || t.closest('[data-openplan]')) return planSheet();
   if(t.id==='igOpenPost') return igPostSheet();
   if(t.dataset.film){ const q=Q.find(x=>x.id===t.dataset.film); if(q) igPostSheet({manual:true, topic:((q.title?q.title+'. ':'')+String(q.body||'')).replace(/\s+/g,' ').slice(0,280)}); return; }
